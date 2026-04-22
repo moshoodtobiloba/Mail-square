@@ -1,0 +1,128 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Primitives ---
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'name', 'createdAt']) && data.keys().size() == 3
+        && data.email is string && data.email.size() <= 200
+        && data.name is string && data.name.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
+    function isValidPreferences(data) {
+      return data.keys().hasAll(['dailyLimit', 'smartNames', 'strictHealth', 'autoRouting', 'userId']) && data.keys().size() == 5
+        && data.dailyLimit is number
+        && data.smartNames is bool
+        && data.strictHealth is bool
+        && data.autoRouting is bool
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    function isValidConnectedInbox(data) {
+      return data.keys().hasAll(['email', 'name', 'health', 'status', 'userId']) && data.keys().size() == 5
+        && data.email is string && data.email.size() <= 200
+        && data.name is string && data.name.size() <= 100
+        && data.health is number && data.health >= 0 && data.health <= 100
+        && data.status is string && data.status.size() <= 50
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    function isValidLead(data) {
+      return data.keys().hasAll(['email', 'firstName', 'lastName', 'userId']) && data.keys().size() == 4
+        && data.email is string && data.email.size() <= 200
+        && data.firstName is string && data.firstName.size() <= 100
+        && data.lastName is string && data.lastName.size() <= 100
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    function isValidCampaignStep(data) {
+      return data.keys().hasAll(['name', 'delay', 'subject', 'content', 'userId']) && data.keys().size() == 5
+        && data.name is string && data.name.size() <= 150
+        && data.delay is string && data.delay.size() <= 100
+        && data.subject is string && data.subject.size() <= 200
+        && data.content is string && data.content.size() <= 10000
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    function isValidAppNotification(data) {
+      return data.keys().hasAll(['title', 'desc', 'type', 'link', 'userId']) && data.keys().size() == 5
+        && data.title is string && data.title.size() <= 150
+        && data.desc is string && data.desc.size() <= 500
+        && data.type is string && data.type.size() <= 50
+        && data.link is string && data.link.size() <= 150
+        && data.userId is string && data.userId == request.auth.uid;
+    }
+
+    // --- Collections ---
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
+                    && isValidUser(incoming())
+                    && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
+                    && isValidUser(incoming())
+                    && incoming().createdAt == existing().createdAt
+                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email']);
+      
+      match /preferences/{preferenceId} {
+        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(preferenceId) && request.auth.uid == userId
+                      && isValidPreferences(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isSignedIn() && isValidId(preferenceId) && request.auth.uid == userId
+                      && isValidPreferences(incoming())
+                      && incoming().userId == existing().userId
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'smartNames', 'strictHealth', 'autoRouting']);
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /connected_inboxes/{inboxId} {
+        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(inboxId) && request.auth.uid == userId
+                      && isValidConnectedInbox(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /leads/{leadId} {
+        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
+                      && isValidLead(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /campaign_steps/{stepId} {
+        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
+                      && isValidCampaignStep(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
+                      && isValidCampaignStep(incoming())
+                      && incoming().userId == existing().userId
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'delay', 'subject', 'content']);
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /app_notifications/{notificationId} {
+        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn() && isValidId(notificationId) && request.auth.uid == userId
+                      && isValidAppNotification(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile data.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "name": {
+          "type": "string",
+          "description": "User full name"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "name", "createdAt"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "User specific app settings.",
+      "type": "object",
+      "properties": {
+        "dailyLimit": {
+          "type": "number"
+        },
+        "smartNames": {
+          "type": "boolean"
+        },
+        "strictHealth": {
+          "type": "boolean"
+        },
+        "autoRouting": {
+          "type": "boolean"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["dailyLimit", "smartNames", "strictHealth", "autoRouting", "userId"]
+    },
+    "ConnectedInbox": {
+      "title": "ConnectedInbox",
+      "description": "A Gmail account connected by the user.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "health": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["email", "name", "health", "status", "userId"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "A contact lead imported by the user.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "firstName": {
+          "type": "string"
+        },
+        "lastName": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["email", "firstName", "lastName", "userId"]
+    },
+    "CampaignStep": {
+      "title": "CampaignStep",
+      "description": "A sequence step for email campaigns.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "delay": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["name", "delay", "subject", "content", "userId"]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "An app notification.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        }
+      },
+      "required": ["title", "desc", "type", "link", "userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Top-level user collections"
+    },
+    "/users/{userId}/preferences/{preferenceId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "User preference single document"
+    },
+    "/users/{userId}/connected_inboxes/{inboxId}": {
+      "schema": { "$ref": "#/entities/ConnectedInbox" },
+      "description": "User's connected email inboxes"
+    },
+    "/users/{userId}/leads/{leadId}": {
+      "schema": { "$ref": "#/entities/Lead" },
+      "description": "User's imported leads"
+    },
+    "/users/{userId}/campaign_steps/{stepId}": {
+      "schema": { "$ref": "#/entities/CampaignStep" },
+      "description": "User's campaign steps"
+    },
+    "/users/{userId}/app_notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "User's notifications"
+    }
+  }
+}
