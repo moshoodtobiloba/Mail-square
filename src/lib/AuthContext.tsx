@@ -48,8 +48,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Extract the Google Access Token (for Gmail API)
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-         // Store the temporary Gmail API token in localStorage for immediate session use
+      if (credential?.accessToken && result.user.email) {
+         // Store tokens per email to support switching
+         const tokensStr = localStorage.getItem('gmail_tokens') || '{}';
+         const tokens = JSON.parse(tokensStr);
+         tokens[result.user.email.toLowerCase()] = credential.accessToken;
+         localStorage.setItem('gmail_tokens', JSON.stringify(tokens));
+         
+         // Set current for immediate use
          localStorage.setItem('gmail_access_token', credential.accessToken);
       }
       

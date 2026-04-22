@@ -17,11 +17,83 @@ export default function SettingsView() {
     }
   };
 
+  const handleResetDefaults = () => {
+    if (window.confirm("Reset all algorithm preferences to factory defaults? Your connected accounts will remain active.")) {
+      setDailyLimit(250);
+      setSmartNames(true);
+      setStrictHealth(true);
+      setAutoRouting(true);
+      alert("Settings reset to defaults.");
+    }
+  };
+
+  const [customName, setCustomName] = useLocalStorage('profile_custom_name', '');
+  const [customPhoto, setCustomPhoto] = useLocalStorage('profile_custom_photo', '');
+
   return (
     <div className="animate-in fade-in duration-500 max-w-3xl mx-auto space-y-8 pb-12">
-      <div>
-        <h2 className="text-3xl font-light tracking-tight">Global Settings</h2>
-        <p className="text-gray-500 mt-1">Manage behaviors, templates, and algorithms for MailSquare.</p>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-light tracking-tight">Global Settings</h2>
+          <p className="text-gray-500 mt-1">Manage behaviors, templates, and algorithms for MailSquare.</p>
+        </div>
+        <button 
+          onClick={handleResetDefaults}
+          className="px-4 py-2 border border-gray-200 rounded-lg text-xs font-bold uppercase tracking-wider text-gray-500 hover:bg-gray-50 transition-colors cursor-pointer"
+        >
+          Reset Defaults
+        </button>
+      </div>
+
+      <div className="utility-card p-8">
+        <h3 className="text-lg font-medium border-b border-gray-100 pb-4 mb-6">My Profile (Local Customization)</h3>
+        <div className="space-y-6">
+          <div className="flex items-center gap-6">
+            <div className="w-20 h-20 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
+              {customPhoto ? <img src={customPhoto} alt="Avatar" className="w-full h-full object-cover" /> : <Trash2 className="w-8 h-8 text-gray-300" />}
+            </div>
+            <div className="flex-1 space-y-3">
+               <div>
+                 <label className="text-xs font-bold text-gray-500 uppercase">Custom Name</label>
+                 <input 
+                   type="text" 
+                   value={customName} 
+                   onChange={e => setCustomName(e.target.value)} 
+                   placeholder="Overwrites Google Display Name"
+                   className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                 />
+               </div>
+               <div>
+                 <label className="text-xs font-bold text-gray-500 uppercase">Profile Photo URL</label>
+                 <input 
+                   type="text" 
+                   value={customPhoto} 
+                   onChange={e => setCustomPhoto(e.target.value)} 
+                   placeholder="Direct image URL (e.g. from Unsplash or Imgur)"
+                   className="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                 />
+               </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 italic italic">Note: These changes only affect how you appear inside the MailSquare dashboard. Recipients will still see your official Google profile information when receiving emails.</p>
+        </div>
+      </div>
+
+      <div className="utility-card p-8 bg-blue-50/30 border-blue-100">
+        <h3 className="text-lg font-medium border-b border-blue-100 pb-4 mb-6 text-blue-900 flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-blue-500" />
+          How Auto-Send Works
+        </h3>
+        <div className="space-y-4 text-sm text-blue-800 leading-relaxed">
+          <p>
+            MailSquare uses a <strong>Staggered Sending Algorithm</strong> to protect your Gmail reputation:
+          </p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong>Randomized Intervals:</strong> Emails are sent with a "human delay" of 45-120 seconds between each message.</li>
+            <li><strong>Warm-Up Mode:</strong> For new accounts, we start by sending only 5-10 emails/day and progressively increase to your Daily Limit over 2 weeks.</li>
+            <li><strong>Health Blocking:</strong> If the API detects a "Message Rejected" error or high spam filtering, all automated sending is paused for 24 hours to let the domain "cool down".</li>
+          </ul>
+        </div>
       </div>
 
       <div className="utility-card p-8">
