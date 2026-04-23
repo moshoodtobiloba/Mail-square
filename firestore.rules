@@ -65,6 +65,13 @@ service cloud.firestore {
         && data.userId is string && data.userId == request.auth.uid;
     }
 
+    function isValidGmailToken(data) {
+      return data.keys().hasAll(['email', 'access_token', 'refresh_token', 'scope', 'token_type', 'expiry_date', 'updatedAt'])
+        && data.email is string
+        && data.access_token is string
+        && data.refresh_token is string;
+    }
+
     // --- Collections ---
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
@@ -122,6 +129,11 @@ service cloud.firestore {
                       && isValidAppNotification(incoming())
                       && exists(/databases/$(database)/documents/users/$(userId));
         allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /gmail_tokens/{tokenId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow write: if isSignedIn() && request.auth.uid == userId;
       }
     }
   }

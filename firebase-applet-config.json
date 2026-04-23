@@ -3,7 +3,7 @@
   "appId": "1:200883317402:web:99785d1bcc708a5ae64d23",
   "apiKey": "AIzaSyBlvzT1OlUN6HfE5H4ODY-4-Yt62GzOXWw",
   "authDomain": "mailsquare-9db8c.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
+  "firestoreDatabaseId": "default",
   "storageBucket": "mailsquare-9db8c.firebasestorage.app",
   "messagingSenderId": "200883317402",
   "measurementId": "G-0Z56KBRY0Z"

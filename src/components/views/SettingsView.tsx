@@ -29,6 +29,8 @@ export default function SettingsView() {
 
   const [customName, setCustomName] = useLocalStorage('profile_custom_name', '');
   const [customPhoto, setCustomPhoto] = useLocalStorage('profile_custom_photo', '');
+  const [inboxes, setInboxes] = useLocalStorage<{email: string, health: number, status: string, name: string, photoURL?: string}[]>('connected_inboxes', []);
+  const { signIn } = useAuth();
 
   return (
     <div className="animate-in fade-in duration-500 max-w-3xl mx-auto space-y-8 pb-12">
@@ -43,6 +45,60 @@ export default function SettingsView() {
         >
           Reset Defaults
         </button>
+      </div>
+
+      <div className="utility-card p-8">
+        <h3 className="text-lg font-medium border-b border-gray-100 pb-4 mb-6 flex items-center justify-between">
+          Connected Gmail Accounts
+          <button 
+            onClick={signIn}
+            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold uppercase tracking-wider transition-colors cursor-pointer"
+          >
+            Add Account
+          </button>
+        </h3>
+        <div className="space-y-4">
+          {inboxes.length === 0 ? (
+            <p className="text-sm text-gray-500 italic p-4 text-center bg-gray-50 rounded-xl">No accounts connected yet.</p>
+          ) : (
+            <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden">
+              {inboxes.map((acc, i) => (
+                <div key={i} className="flex items-center justify-between p-4 bg-white hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold overflow-hidden border border-blue-100 shrink-0">
+                      {acc.photoURL ? <img src={acc.photoURL} alt="" className="w-full h-full object-cover" /> : acc.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{acc.name}</p>
+                      <p className="text-xs text-gray-500">{acc.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right hidden sm:block">
+                      <p className={`text-[10px] font-bold uppercase tracking-widest ${acc.health > 80 ? 'text-emerald-500' : 'text-amber-500'}`}>
+                        {acc.status} ({acc.health}%)
+                      </p>
+                      <div className="w-24 h-1 bg-gray-100 rounded-full mt-1 overflow-hidden">
+                        <div className={`h-full ${acc.health > 80 ? 'bg-emerald-400' : 'bg-amber-400'}`} style={{ width: `${acc.health}%` }}></div>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        if (window.confirm(`Disconnect ${acc.email}?`)) {
+                          setInboxes(inboxes.filter((_, idx) => idx !== i));
+                        }
+                      }}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                      title="Remove Account"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="utility-card p-8">
@@ -93,23 +149,6 @@ export default function SettingsView() {
             <li><strong>Warm-Up Mode:</strong> For new accounts, we start by sending only 5-10 emails/day and progressively increase to your Daily Limit over 2 weeks.</li>
             <li><strong>Health Blocking:</strong> If the API detects a "Message Rejected" error or high spam filtering, all automated sending is paused for 24 hours to let the domain "cool down".</li>
           </ul>
-        </div>
-      </div>
-
-      <div className="utility-card p-8">
-        <h3 className="text-lg font-medium border-b border-gray-100 pb-4 mb-6">Brand Assets & Verification</h3>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-900 text-base">Application Logo</p>
-            <p className="text-sm text-gray-500 mt-1 leading-relaxed">Download the official MailSquare logo for use in Google Cloud Console / OAuth verification.</p>
-          </div>
-          <a 
-            href="/logo.svg" 
-            download="mailsquare-logo.svg"
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm cursor-pointer"
-          >
-            Download SVG
-          </a>
         </div>
       </div>
 

@@ -6,10 +6,10 @@ export default function DashboardView() {
   const [inboxes] = useLocalStorage<{email: string, health: number, status: string}[]>('connected_inboxes', []);
   
   const stats = [
-    { label: 'Emails Sent', value: '0', icon: Mail },
+    { label: 'Emails Sent Today', value: '0', icon: Mail },
     { label: 'Active Leads', value: leads.length.toString(), icon: Users },
-    { label: 'Follow-ups Sent', value: '0', icon: GitMerge },
-    { label: 'Click Rate', value: '0.0%', icon: Activity },
+    { label: 'Pending Follow-ups', value: '0', icon: GitMerge },
+    { label: 'Engagement Rate', value: '0%', icon: Activity },
   ];
 
   return (
