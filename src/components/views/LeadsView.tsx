@@ -1,95 +1,174 @@
 import { useState } from 'react';
-import { Upload, Trash2, Search, UserPlus, Users } from 'lucide-react';
+import { Upload, Trash2, Search, UserPlus, Users, AlertCircle } from 'lucide-react';
 import { parseEmailNames } from '../../utils/parser';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
+import Papa from 'papaparse';
 
 export default function LeadsView() {
   const [leads, setLeads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
   const [newLead, setNewLead] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const handleAdd = () => {
-    if (!newLead.includes('@')) return;
-    const { firstName, lastName } = parseEmailNames(newLead);
-    setLeads([{ email: newLead, firstName, lastName }, ...leads]);
+    const trimmed = newLead.trim();
+    if (!trimmed || !trimmed.includes('@')) return;
+    const { firstName, lastName } = parseEmailNames(trimmed);
+    
+    // Avoid duplicates
+    if (leads.find(l => l.email.toLowerCase() === trimmed.toLowerCase())) {
+      alert("This lead is already in your database.");
+      return;
+    }
+
+    setLeads([{ email: trimmed, firstName, lastName }, ...leads]);
     setNewLead('');
   }
 
-  const clearLeads = () => setLeads([]);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const newLeads: any[] = [];
+        results.data.forEach((row: any) => {
+          const email = row.email || row.Email || row.EMAIL || Object.values(row).find(v => typeof v === 'string' && v.includes('@'));
+          if (email && typeof email === 'string') {
+            const firstName = row.firstName || row.first_name || row['First Name'] || '';
+            const lastName = row.lastName || row.last_name || row['Last Name'] || '';
+            
+            if (!leads.find(l => l.email.toLowerCase() === email.toLowerCase())) {
+              newLeads.push({ 
+                email: email.trim(), 
+                firstName: firstName.trim() || parseEmailNames(email).firstName, 
+                lastName: lastName.trim() || parseEmailNames(email).lastName 
+              });
+            }
+          }
+        });
+
+        if (newLeads.length > 0) {
+          setLeads(prev => [...newLeads, ...prev]);
+          setImportStatus('success');
+          setTimeout(() => setImportStatus('idle'), 3000);
+        } else {
+          alert("No new valid leads found in CSV.");
+        }
+      },
+      error: (err) => {
+        console.error("CSV Parse Error:", err);
+        setImportStatus('error');
+      }
+    });
+  };
+
+  const filteredLeads = leads.filter(l => 
+    l.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    l.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    l.lastName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const clearLeads = () => {
+    if (confirm("Are you sure you want to wipe your entire lead database?")) {
+      setLeads([]);
+    }
+  };
 
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-light tracking-tight">Lead Database</h2>
-          <p className="text-gray-500 mt-1">Import, search, and manage your contacts using smart extraction.</p>
+          <h2 className="text-3xl font-black text-gray-900 tracking-tighter">Lead Intelligence</h2>
+          <p className="text-gray-500 font-medium mt-1">Manage {leads.length} high-intent contacts with smart relay matching.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={clearLeads} className="px-4 py-2 border border-red-200 text-red-600 rounded-full text-sm font-medium hover:bg-red-50 flex items-center gap-2 transition-colors cursor-pointer">
-            <Trash2 className="w-4 h-4" /> Clear All
-          </button>
+          {leads.length > 0 && (
+            <button onClick={clearLeads} className="px-5 py-2 border-2 border-red-100 text-red-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-red-50 flex items-center gap-2 transition-all cursor-pointer active:scale-95">
+              <Trash2 className="w-4 h-4" /> Wipe Database
+            </button>
+          )}
           
           <div className="relative">
             <input 
               type="file" 
               accept=".csv"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-              onChange={(e) => {
-                if(e.target.files && e.target.files.length > 0) {
-                  // Mock import
-                  setLeads([{ email: 'imported@csv.com', firstName: 'Imported', lastName: 'User' }, ...leads]);
-                }
-              }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+              onChange={handleFileUpload}
             />
-            <button className="px-4 py-2 bg-gray-900 text-white rounded-full text-sm font-medium hover:bg-black flex items-center gap-2 shadow-sm transition-all focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 cursor-pointer pointer-events-none">
-              <Upload className="w-4 h-4" /> Import CSV
+            <button className={`px-5 py-2 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-xl transition-all cursor-pointer pointer-events-none ${importStatus === 'success' ? 'bg-emerald-500 text-white' : 'bg-gray-900 text-white hover:bg-black'}`}>
+              <Upload className="w-4 h-4" /> {importStatus === 'success' ? 'Imported!' : 'Import CSV'}
             </button>
           </div>
         </div>
       </div>
 
-      <div className="utility-card overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 justify-between bg-gray-50/50">
-          <div className="relative max-w-sm w-full">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+      <div className="bg-white border-2 border-gray-100 rounded-[2.5rem] overflow-hidden shadow-sm">
+        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row gap-6 justify-between bg-gray-50/30">
+          <div className="relative max-w-md w-full">
+            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
             <input 
               type="text" 
               placeholder="Search leads..."
-              className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 transition-shadow"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 bg-white border-2 border-transparent focus:border-blue-500 rounded-2xl text-sm font-bold outline-none transition-all shadow-sm"
             />
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex gap-3 w-full sm:w-auto">
              <input 
                type="email" 
                placeholder="Add single email..."
-               className="w-full sm:w-64 px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-200 transition-shadow"
+               className="w-full sm:w-72 px-5 py-3 bg-white border-2 border-transparent focus:border-blue-500 rounded-2xl text-sm font-bold outline-none transition-all shadow-sm"
                value={newLead}
                onChange={(e) => setNewLead(e.target.value)}
                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
              />
-             <button onClick={handleAdd} className="px-4 py-2 bg-gray-100 border border-gray-200 rounded-lg hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer">
-               <UserPlus className="w-4 h-4" />
+             <button onClick={handleAdd} className="px-5 py-3 bg-blue-600 text-white rounded-2xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg shadow-blue-100 active:scale-95">
+               <UserPlus className="w-5 h-5" />
              </button>
           </div>
         </div>
         <div>
-          <div className="grid grid-cols-[2fr_1fr_1fr] p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100 bg-gray-50/20">
-            <div>Email</div>
-            <div>Extracted First Name</div>
-            <div>Extracted Last Name</div>
+          <div className="grid grid-cols-[2fr_1fr_1fr_120px] px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 bg-gray-50/10">
+            <div>Email Identity</div>
+            <div>First Name</div>
+            <div>Last Name</div>
+            <div className="text-right">Action</div>
           </div>
-          {leads.length === 0 ? (
-            <div className="p-12 text-center">
-                <Users className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm font-medium">No leads in database</p>
-                <p className="text-gray-400 text-xs mt-1">Import via CSV or add single emails manually.</p>
+          {filteredLeads.length === 0 ? (
+            <div className="p-20 text-center">
+                <div className="w-20 h-20 bg-gray-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                  <Users className="w-10 h-10 text-gray-200" />
+                </div>
+                <p className="text-xl font-black text-gray-300 uppercase tracking-widest">No matching leads</p>
+                <p className="text-sm text-gray-400 mt-2 font-medium">Try a different search or import a list.</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-100">
-              {leads.map((lead, i) => (
-                <div key={i} className="grid grid-cols-[2fr_1fr_1fr] p-4 text-sm font-mono hover:bg-gray-50 transition-colors items-center group cursor-pointer">
-                  <div className="text-gray-900 font-medium group-hover:text-blue-600 transition-colors">{lead.email}</div>
-                  <div className="text-gray-600">{lead.firstName || <span className="text-gray-300 italic">None</span>}</div>
-                  <div className="text-gray-600">{lead.lastName || <span className="text-gray-300 italic">None</span>}</div>
+            <div className="divide-y divide-gray-50">
+              {filteredLeads.map((lead, i) => (
+                <div key={i} className="grid grid-cols-[2fr_1fr_1fr_120px] px-8 py-5 text-sm hover:bg-blue-50/30 transition-all items-center group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 font-black text-xs">
+                      {lead.email[0].toUpperCase()}
+                    </div>
+                    <div className="text-gray-900 font-bold tracking-tight truncate">{lead.email}</div>
+                  </div>
+                  <div className="text-gray-600 font-medium">{lead.firstName || <span className="text-gray-300 italic">Auto</span>}</div>
+                  <div className="text-gray-600 font-medium">{lead.lastName || <span className="text-gray-300 italic">Auto</span>}</div>
+                  <div className="text-right">
+                    <button 
+                      onClick={(e) => {
+                         e.stopPropagation();
+                         alert(`Launching automation for ${lead.email}...`);
+                      }}
+                      className="px-4 py-1.5 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-black underline uppercase tracking-widest hover:bg-blue-600 hover:text-white hover:no-underline transition-all"
+                    >
+                      Outreach
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

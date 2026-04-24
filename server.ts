@@ -28,11 +28,7 @@ if (fs.existsSync(firebaseConfigPath)) {
 }
 
 const getDb = () => {
-  try {
-    return admin.firestore(firestoreDatabaseId);
-  } catch (e) {
-    return admin.firestore();
-  }
+  return getFirestore();
 };
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
