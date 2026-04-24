@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Upload, Trash2, Search, UserPlus, Users, AlertCircle } from 'lucide-react';
 import { parseEmailNames } from '../../utils/parser';
 import { useLocalStorage } from '../../hooks/useLocalStorage';

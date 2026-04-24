@@ -370,6 +370,7 @@ export default function MailView() {
         }
       });
       
+      const contentType = res.headers.get("content-type");
       if (!res.ok) {
         if (res.status === 404) {
           setApiError('ACCOUNT_NOT_CONNECTED');
@@ -379,10 +380,21 @@ export default function MailView() {
           setApiError('SESSION_EXPIRED');
           return;
         }
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData?.error || errorData?.error?.message || `Failed to fetch messages (${res.status}).`);
+        
+        let errorMsg = `Failed to fetch messages (${res.status}).`;
+        if (contentType && contentType.includes("application/json")) {
+          const errorData = await res.json().catch(() => ({}));
+          errorMsg = errorData?.error || errorData?.error?.message || errorMsg;
+        } else if (contentType && contentType.includes("text/html")) {
+          errorMsg = "Backend Proxy not found. If this is a static deployment (like Netlify), ensure the backend is also deployed.";
+        }
+        throw new Error(errorMsg);
       }
       
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Invalid response format from server (Expected JSON, received HTML/Text). This usually means the backend proxy is missing.");
+      }
+
       const data = await res.json();
       setNextPageToken(data.nextPageToken || null);
 
@@ -1500,9 +1512,16 @@ export default function MailView() {
                     </>
                   ) : (
                     <>
-                      <h3 className="text-lg font-medium text-red-900 mb-2">Sync Error</h3>
-                      <p className="text-sm text-red-700 mb-6">{apiError}</p>
-                      <button onClick={() => window.location.reload()} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg">Try Again</button>
+                      <h3 className="text-lg font-black text-red-900 uppercase tracking-tighter mb-2">Sync Connection Alert</h3>
+                      <p className="text-sm text-red-700/80 mb-8 font-medium leading-relaxed max-w-xs mx-auto">{apiError}</p>
+                      <div className="space-y-4 w-full px-10">
+                        <button onClick={() => window.location.reload()} className="w-full py-4 bg-red-600 text-white rounded-[2rem] font-bold shadow-xl shadow-red-100 hover:bg-red-700 transition-all active:scale-95">
+                          Try Again
+                        </button>
+                        <button onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'Accounts' }))} className="w-full py-4 bg-white border-2 border-red-100 text-red-600 rounded-[2rem] font-bold hover:bg-red-50 transition-all">
+                          Verify Connection
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
@@ -1740,24 +1759,24 @@ export default function MailView() {
                ></textarea>
              </div>
           </div>
-          <div className="p-5 bg-gray-50/80 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-6">
-             <div className="flex items-center justify-between w-full sm:w-auto gap-4 flex-1">
-                <div className="flex flex-row items-center gap-3 w-full sm:w-auto">
+          <div className="p-4 sm:p-5 bg-gray-50/80 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+             <div className="flex items-center justify-between w-full sm:w-auto gap-3 sm:gap-4 flex-1">
+                <div className="flex flex-row items-center gap-2 sm:gap-3 w-full sm:w-auto">
                   <button 
                     onClick={handleSendEmail}
                     disabled={isSending}
-                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-8 py-3.5 rounded-2xl text-sm font-black transition-all cursor-pointer shadow-xl shadow-blue-100 hover:shadow-blue-200 flex items-center justify-center gap-3 uppercase tracking-[0.1em] active:scale-95"
+                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-5 sm:px-8 py-3 sm:py-3.5 rounded-2xl text-[13px] sm:text-sm font-black transition-all cursor-pointer shadow-xl shadow-blue-100 hover:shadow-blue-200 flex items-center justify-center gap-2 sm:gap-3 uppercase tracking-[0.1em] active:scale-95"
                   >
                     {isSending ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <SendIcon className="w-4 h-4 fill-current" />}
                     {isSending ? 'Syncing...' : (scheduleDate && scheduleTime ? 'Schedule Engine' : 'Send Now')}
                   </button>
                   
-                  <div className="relative w-14 h-14 sm:w-[unset] sm:h-[unset]">
+                  <div className="relative">
                     <button 
                       onClick={() => setShowSchedulePicker(!showSchedulePicker)}
-                      className={`w-full h-full sm:w-auto p-4 sm:p-3.5 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 text-xs font-black uppercase tracking-widest border-2 ${scheduleDate && scheduleTime ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                      className={`h-full sm:h-auto p-3 sm:p-3.5 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 text-[10px] sm:text-xs font-black uppercase tracking-widest border-2 ${scheduleDate && scheduleTime ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'}`}
                     >
-                      <Calendar className="w-5 h-5 sm:w-4 sm:h-4" />
+                      <Calendar className="w-5 h-5 sm:w-4 sm:h-4 text-[13px]" />
                       <span className="hidden sm:inline">{scheduleDate && scheduleTime ? 'Locked' : 'Schedule'}</span>
                     </button>
                     
@@ -1767,14 +1786,14 @@ export default function MailView() {
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 bg-white border border-gray-100 shadow-[0_20px_60px_-12px_rgba(0,0,0,0.3)] rounded-[2.5rem] p-8 w-80 sm:w-80 z-[120] animate-in slide-in-from-bottom-4 duration-300"
+                          className="absolute bottom-full right-0 sm:left-1/2 sm:-translate-x-1/2 mb-4 bg-white border border-gray-100 shadow-[0_20px_60px_-12px_rgba(0,0,0,0.3)] rounded-[2.5rem] p-6 sm:p-8 w-[280px] sm:w-80 z-[120] animate-in slide-in-from-bottom-4 duration-300"
                         >
                           <div className="flex items-center justify-between mb-6">
-                             <div className="flex items-center gap-2">
-                               <Clock className="w-4 h-4 text-blue-600" />
-                               <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">Time Buffer</span>
-                             </div>
-                             <button onClick={() => setShowSchedulePicker(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-3 h-3 text-gray-400" /></button>
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-blue-600" />
+                                <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">Time Buffer</span>
+                              </div>
+                              <button onClick={() => setShowSchedulePicker(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-3 h-3 text-gray-400" /></button>
                           </div>
                           <div className="space-y-4">
                             <div>
@@ -1821,10 +1840,10 @@ export default function MailView() {
                     </AnimatePresence>
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <button className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Attach Files"><Paperclip className="w-5 h-5" /></button>
+                <div className="flex gap-0.5 sm:gap-1">
+                  <button className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Attach Files"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
                   <div className="relative group/templates">
-                    <button className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Variable"><List className="w-5 h-5" /></button>
+                    <button className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Variable"><List className="w-4 h-4 sm:w-5 sm:h-5" /></button>
                     <div className="absolute bottom-full left-0 mb-3 hidden group-hover/templates:flex flex-col bg-white border border-gray-100 shadow-2xl rounded-2xl py-3 w-56 z-[110] animate-in slide-in-from-bottom-2">
                        <p className="px-5 py-2 text-[9px] font-black text-gray-300 uppercase tracking-widest border-b border-gray-50">Intelligence Variables</p>
                        <button onClick={() => insertVariable('firstName')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">First Name</button>
@@ -1833,20 +1852,9 @@ export default function MailView() {
                        <button onClick={() => insertVariable('email')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Email Address</button>
                     </div>
                   </div>
-                  <button onClick={insertLink} className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Link">
-                    <LinkIcon className="w-5 h-5" />
+                  <button onClick={insertLink} className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Link">
+                    <LinkIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
-                  <div className="relative group">
-                    <button className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Variable">
-                      <LayoutGrid className="w-5 h-5" />
-                    </button>
-                    <div className="absolute bottom-full left-0 mb-2 bg-white border border-gray-100 shadow-xl rounded-2xl py-2 w-48 hidden group-hover:block z-50 overflow-hidden">
-                       <button onClick={() => insertVariable('firstName')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">First Name</button>
-                       <button onClick={() => insertVariable('lastName')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Last Name</button>
-                       <button onClick={() => insertVariable('email')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Email Address</button>
-                       <button onClick={() => insertVariable('company')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Company Name</button>
-                    </div>
-                  </div>
                 </div>
              </div>
              <div className="hidden sm:flex items-center gap-6 pl-4 border-l border-gray-200">
