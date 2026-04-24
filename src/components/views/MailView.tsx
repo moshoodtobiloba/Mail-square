@@ -1767,7 +1767,7 @@ export default function MailView() {
                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 bg-white border border-gray-100 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] rounded-3xl p-6 w-[280px] sm:w-72 z-[120]"
+                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 bg-white border border-gray-100 shadow-[0_20px_60px_-12px_rgba(0,0,0,0.3)] rounded-[2.5rem] p-8 w-80 sm:w-80 z-[120] animate-in slide-in-from-bottom-4 duration-300"
                         >
                           <div className="flex items-center justify-between mb-6">
                              <div className="flex items-center gap-2">
@@ -1833,7 +1833,20 @@ export default function MailView() {
                        <button onClick={() => insertVariable('email')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Email Address</button>
                     </div>
                   </div>
-                  <button onClick={insertLink} className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Link"><LinkIcon className="w-5 h-5" /></button>
+                  <button onClick={insertLink} className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Link">
+                    <LinkIcon className="w-5 h-5" />
+                  </button>
+                  <div className="relative group">
+                    <button className="p-3 hover:bg-gray-200/50 rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Variable">
+                      <LayoutGrid className="w-5 h-5" />
+                    </button>
+                    <div className="absolute bottom-full left-0 mb-2 bg-white border border-gray-100 shadow-xl rounded-2xl py-2 w-48 hidden group-hover:block z-50 overflow-hidden">
+                       <button onClick={() => insertVariable('firstName')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">First Name</button>
+                       <button onClick={() => insertVariable('lastName')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Last Name</button>
+                       <button onClick={() => insertVariable('email')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Email Address</button>
+                       <button onClick={() => insertVariable('company')} className="w-full px-4 py-2.5 text-xs text-left font-black uppercase tracking-widest hover:bg-blue-50 transition-colors">Company Name</button>
+                    </div>
+                  </div>
                 </div>
              </div>
              <div className="hidden sm:flex items-center gap-6 pl-4 border-l border-gray-200">

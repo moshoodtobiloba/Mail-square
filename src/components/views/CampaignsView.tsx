@@ -36,6 +36,23 @@ export default function CampaignsView() {
     }, 0);
   };
 
+  const insertLink = () => {
+    const url = prompt("Enter the URL:", "https://");
+    if (!url) return;
+    const textarea = document.getElementById('step-content') as HTMLTextAreaElement;
+    if (!textarea) {
+      updateCurrentStep('content', currentStep.content + ` ${url} `);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end, text.length);
+    const newContent = before + ` ${url} ` + after;
+    updateCurrentStep('content', newContent);
+  };
+
   const variables = ['First Name', 'Last Name', 'Company', 'Country', 'Job Title'];
 
   const addNewStep = () => {
@@ -115,7 +132,7 @@ export default function CampaignsView() {
                <div className="flex items-center justify-between mb-2">
                  <label className="block text-sm font-medium text-gray-700">Body Content</label>
                  <div className="flex items-center gap-2">
-                   <button className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded transition-colors cursor-pointer" title="Insert Link"><Link2 className="w-4 h-4" /></button>
+                   <button className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded transition-colors cursor-pointer" title="Insert Link" onClick={insertLink}><Link2 className="w-4 h-4" /></button>
                    <button className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded transition-colors cursor-pointer" title="Attach Document"><Paperclip className="w-4 h-4" /></button>
                  </div>
                </div>
