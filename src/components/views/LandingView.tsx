@@ -67,14 +67,21 @@ export default function LandingView() {
         </div>
       </main>
       
-      <footer className="py-8 text-center border-t border-gray-100 bg-white">
-        <div className="flex justify-center gap-6 mb-4">
-          <Link to="/privacy" className="text-gray-400 hover:text-gray-600 text-sm transition-colors">Privacy Policy</Link>
-          <Link to="/terms" className="text-gray-400 hover:text-gray-600 text-sm transition-colors">Terms of Service</Link>
+      <footer className="py-12 border-t border-gray-100 bg-[#fcfdfe]">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
+          <div className="flex flex-col gap-2">
+             <div className="flex items-center gap-2 justify-center md:justify-start">
+               <Logo size={20} />
+               <span className="font-black text-gray-900 tracking-tighter uppercase text-sm">MailSquare</span>
+             </div>
+             <p className="text-xs text-gray-400 font-medium tracking-tight">&copy; {new Date().getFullYear()} Precision Outreach Infrastructure. All protocols verified.</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-8">
+            <Link to="/privacy" className="text-xs font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Privacy Policy</Link>
+            <Link to="/terms" className="text-xs font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Terms of Service</Link>
+            <a href="mailto:moshoodabdulmujib9@gmail.com" className="text-xs font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest transition-colors">Contact Us</a>
+          </div>
         </div>
-        <p className="text-gray-400 text-sm">
-          &copy; {new Date().getFullYear()} MailSquare. Built for advanced volume.
-        </p>
       </footer>
     </div>
   )

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LayoutDashboard, Users, Zap, Settings, Mail as MailIcon, Bell, Trash2 } from 'lucide-react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Link } from 'react-router-dom';
 import DashboardView from './components/views/DashboardView.tsx';
 import LeadsView from './components/views/LeadsView.tsx';
 import CampaignsView from './components/views/CampaignsView.tsx';
@@ -190,10 +190,26 @@ export default function App() {
             </header>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto w-full max-w-[1600px] mx-auto pb-24 lg:pb-0 lg:pl-[104px] bg-white p-2 sm:p-4">
-              <div className="h-full mt-2">
+            <main className="flex-1 overflow-y-auto w-full max-w-[1600px] mx-auto pb-24 lg:pb-0 lg:pl-[104px] bg-white p-2 sm:p-4 flex flex-col">
+              <div className="flex-1 mt-2">
                 {renderView()}
               </div>
+
+              {/* App Footer */}
+              <footer className="mt-12 py-8 border-t border-gray-50 bg-white/50 px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                 <div className="flex flex-col gap-1 items-center sm:items-start">
+                   <div className="flex items-center gap-2">
+                     <Logo size={16} />
+                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-900">MailSquare</span>
+                   </div>
+                   <p className="text-[9px] font-bold text-gray-300 uppercase tracking-tighter">&copy; {new Date().getFullYear()} Precision Outreach Infrastructure</p>
+                 </div>
+                 <div className="flex items-center gap-6">
+                   <Link to="/privacy" className="text-[10px] font-black text-gray-400 shadow-transparent hover:text-blue-600 uppercase tracking-widest transition-colors">Privacy</Link>
+                   <Link to="/terms" className="text-[10px] font-black text-gray-400 shadow-transparent hover:text-blue-600 uppercase tracking-widest transition-colors">Terms</Link>
+                   <a href="mailto:moshoodabdulmujib9@gmail.com" className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline transition-colors">Support</a>
+                 </div>
+              </footer>
             </main>
 
             {/* Floating Bottom Navigation (Mobile) / Side Pill (Desktop) inspired by Google Photos */}
