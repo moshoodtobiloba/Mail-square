@@ -184,7 +184,7 @@ async function startServer() {
       client.setCredentials(tokens);
 
       const response = await client.request({
-        url: `https://gmail.googleapis.com/${targetPath.replace(/^gmail\//, "")}`,
+        url: `https://www.googleapis.com/gmail/${targetPath.replace(/^gmail\//, "")}`,
         method: req.method,
         data: (req.method === "GET" || req.method === "HEAD") ? undefined : req.body,
         params: req.query,

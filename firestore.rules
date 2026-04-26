@@ -65,6 +65,15 @@ service cloud.firestore {
         && data.userId is string && data.userId == request.auth.uid;
     }
 
+    function isValidMessageReaction(data) {
+      return data.keys().hasAll(['messageId', 'emoji', 'userId', 'userName', 'createdAt']) && data.keys().size() == 5
+        && data.messageId is string && data.messageId.size() <= 128
+        && data.emoji is string && data.emoji.size() <= 10
+        && data.userId is string && data.userId == request.auth.uid
+        && data.userName is string && data.userName.size() <= 100
+        && data.createdAt is timestamp;
+    }
+
     function isValidGmailToken(data) {
       return data.keys().hasAll(['email', 'access_token', 'refresh_token', 'scope', 'token_type', 'expiry_date', 'updatedAt'])
         && data.email is string
@@ -73,6 +82,14 @@ service cloud.firestore {
     }
 
     // --- Collections ---
+    match /message_reactions/{reactionId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn()
+                    && isValidMessageReaction(incoming())
+                    && incoming().createdAt == request.time;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId

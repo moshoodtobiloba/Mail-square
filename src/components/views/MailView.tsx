@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Menu, Search, Settings, HelpCircle, LayoutGrid, 
@@ -15,6 +15,10 @@ const MOCK_EMAILS: any[] = [];
 
 import { Logo } from '../ui/Logo';
 import { useAuth } from '../../lib/AuthContext';
+import { 
+  collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export default function MailView() {
   const { user, signIn, logOut, loading: authLoading } = useAuth();
@@ -125,6 +129,17 @@ export default function MailView() {
 
   const [customName] = useLocalStorage('profile_custom_name', '');
   const [customPhoto] = useLocalStorage('profile_custom_photo', '');
+  
+  interface MessageReaction {
+    id: string;
+    messageId: string;
+    emoji: string;
+    userId: string;
+    userName: string;
+    createdAt: any;
+  }
+  
+  const [reactions, setReactions] = useState<MessageReaction[]>([]);
 
   const activeAccount = useMemo(() => {
     const rawAccount = inboxes[activeAccountIndex];
@@ -136,6 +151,83 @@ export default function MailView() {
       photoURL: customPhoto || rawAccount.photoURL
     };
   }, [inboxes, activeAccountIndex, customName, customPhoto]);
+
+  enum OperationType {
+    CREATE = 'create',
+    UPDATE = 'update',
+    DELETE = 'delete',
+    LIST = 'list',
+    GET = 'get',
+    WRITE = 'write',
+  }
+
+  function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+    const errInfo = {
+      error: error instanceof Error ? error.message : String(error),
+      authInfo: {
+        userId: user?.uid,
+        email: user?.email,
+      },
+      operationType,
+      path
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
+  }
+
+  // Real-time synchronization of reactions
+  useEffect(() => {
+    if (!selectedEmail?.id || !user) {
+      setReactions([]);
+      return;
+    }
+
+    const path = 'message_reactions';
+    const q = query(
+      collection(db, path),
+      where('messageId', '==', selectedEmail.id)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reactionsList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as MessageReaction[];
+      setReactions(reactionsList);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsubscribe();
+  }, [selectedEmail, user]);
+
+  // Management of reactions
+  const toggleReaction = async (emoji: string) => {
+    if (!user || !selectedEmail) return;
+
+    const existingReaction = reactions.find(r => r.emoji === emoji && r.userId === user.uid);
+    const path = 'message_reactions';
+
+    if (existingReaction) {
+      try {
+        await deleteDoc(doc(db, path, existingReaction.id));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, `${path}/${existingReaction.id}`);
+      }
+    } else {
+      try {
+        await addDoc(collection(db, path), {
+          messageId: selectedEmail.id,
+          emoji,
+          userId: user.uid,
+          userName: user.displayName || user.email || 'User',
+          createdAt: serverTimestamp()
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, path);
+      }
+    }
+  };
 
   // Manage connected inboxes list based on sign-ins
   const lastUserEmail = useRef<string | null>(null);
@@ -512,7 +604,7 @@ export default function MailView() {
     if (!activeAccount || !user) return;
     try {
       const idToken = await user.getIdToken();
-      await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages/${emailId}/batchModify`, {
+      await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages/${emailId}/modify`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -1848,6 +1940,30 @@ export default function MailView() {
                   )}
                 </div>
 
+                {/* Reactions Display */}
+                {reactions.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-6">
+                    {Array.from(new Set(reactions.map(r => r.emoji))).map((emoji: string) => {
+                      const count = reactions.filter(r => r.emoji === emoji).length;
+                      const hasUserReacted = reactions.some(r => r.emoji === emoji && r.userId === user?.uid);
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={() => toggleReaction(emoji)}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                            hasUserReacted 
+                              ? 'bg-blue-50 text-blue-600 border border-blue-200' 
+                              : 'bg-gray-50 text-gray-600 border border-gray-100 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span>{emoji}</span>
+                          <span className="text-xs font-bold">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3">
                   <button 
                     onClick={handleReply}
@@ -1866,10 +1982,15 @@ export default function MailView() {
                       <Smile className="w-4 h-4" />
                     </button>
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/emoji:flex items-center gap-1 bg-white border border-gray-200 rounded-full shadow-lg px-2 py-1 z-50">
-                       <button className="hover:bg-gray-100 rounded-full p-1.5 cursor-pointer text-lg">👍</button>
-                       <button className="hover:bg-gray-100 rounded-full p-1.5 cursor-pointer text-lg">❤️</button>
-                       <button className="hover:bg-gray-100 rounded-full p-1.5 cursor-pointer text-lg">😂</button>
-                       <button className="hover:bg-gray-100 rounded-full p-1.5 cursor-pointer text-lg">👏</button>
+                       {['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯'].map(emoji => (
+                         <button 
+                           key={emoji}
+                           onClick={() => toggleReaction(emoji)}
+                           className="hover:bg-gray-100 rounded-full p-2 cursor-pointer text-lg transition-colors"
+                         >
+                           {emoji}
+                         </button>
+                       ))}
                     </div>
                   </div>
                 </div>

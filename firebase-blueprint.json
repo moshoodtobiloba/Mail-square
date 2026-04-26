@@ -131,9 +131,37 @@
         }
       },
       "required": ["title", "desc", "type", "link", "userId"]
+    },
+    "MessageReaction": {
+      "title": "MessageReaction",
+      "description": "Emoji reaction to a message.",
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "userName": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["messageId", "emoji", "userId", "userName", "createdAt"]
     }
   },
   "firestore": {
+    "/message_reactions/{reactionId}": {
+      "schema": { "$ref": "#/entities/MessageReaction" },
+      "description": "Global reactions to messages"
+    },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Top-level user collections"

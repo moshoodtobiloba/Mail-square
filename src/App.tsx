@@ -217,12 +217,12 @@ export default function App() {
               {/* View Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto bg-white sm:bg-[#fcfdfe]">
                 <div className="max-w-[1440px] mx-auto p-4 sm:p-8 min-h-full flex flex-col">
-                  <div className="flex-1 pb-24 lg:pb-12">
+                  <div className="flex-1 pb-72 lg:pb-12">
                     {renderView()}
                   </div>
                   
                   {/* App Footer In-View */}
-                  <footer className="mt-auto pt-12 pb-8 border-t border-gray-50 flex flex-col sm:flex-row items-center justify-between gap-6">
+                  <footer className="mt-auto pt-12 pb-80 sm:pb-8 border-t border-gray-50 flex flex-col sm:flex-row items-center justify-between gap-6">
                     <div className="flex flex-col gap-1 items-center sm:items-start text-center sm:text-left">
                       <div className="flex items-center gap-2 mb-1">
                         <Logo size={14} />
@@ -232,9 +232,9 @@ export default function App() {
                       <p className="text-[8px] font-medium text-gray-300 uppercase tracking-[0.2em] mt-1">&copy; 2026 Unified Intelligence Systems</p>
                     </div>
                     <div className="flex items-center gap-8">
-                       <Link to="/privacy" className="text-[10px] font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Privacy</Link>
-                       <Link to="/terms" className="text-[10px] font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Terms</Link>
-                       <a href="mailto:support@mailsquare.app" className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] hover:opacity-70 transition-all">Verification Center</a>
+                       <Link to="/privacy" className="text-[10px] font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Privacy Policy</Link>
+                       <Link to="/terms" className="text-[10px] font-black text-gray-400 hover:text-blue-600 uppercase tracking-widest transition-colors">Terms of Service</Link>
+                       <a href="mailto:moshoodabdulmujib9@gmail.com" className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] hover:opacity-70 transition-all">Verification Center</a>
                     </div>
                   </footer>
                 </div>

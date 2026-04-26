@@ -13,7 +13,9 @@ export default function LandingView() {
           <Logo size={32} />
           <LogoText className="text-xl" />
         </div>
-        <div>
+        <div className="flex items-center gap-8">
+          <Link to="/privacy" className="hidden md:block text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Privacy Policy</Link>
+          <Link to="/terms" className="hidden md:block text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Terms of Service</Link>
           <button 
             onClick={signIn}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-medium transition-all shadow-sm cursor-pointer"
