@@ -67,6 +67,38 @@ export default function LandingView() {
         </div>
       </main>
       
+      <section className="py-24 bg-white">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="bg-gray-900 rounded-[3rem] p-12 md:p-20 overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-1/2 h-full bg-blue-600/10 blur-[120px] pointer-events-none"></div>
+            <div className="relative z-10 max-w-2xl">
+              <span className="text-blue-400 text-xs font-black uppercase tracking-[0.3em] mb-6 block">Security Architecture</span>
+              <h2 className="text-3xl md:text-5xl font-black text-white mb-8 tracking-tighter italic uppercase">Engineered for Privacy.</h2>
+              <div className="space-y-8">
+                <div className="flex gap-6">
+                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10">
+                    <Zap className="text-blue-400" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-2 uppercase tracking-tight">Direct API Integration</h3>
+                    <p className="text-gray-400 leading-relaxed font-medium">MailSquare communicates directly with Google APIs. Your email content is processed in your local browser session and is never stored on our servers.</p>
+                  </div>
+                </div>
+                <div className="flex gap-6">
+                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center flex-shrink-0 border border-white/10">
+                    <Users className="text-blue-400" size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-2 uppercase tracking-tight">Limited Use Compliance</h3>
+                    <p className="text-gray-400 leading-relaxed font-medium">We strictly adhere to Google's Limited Use requirements. We do not use your data for advertising, market research, or any purpose outside of the unified dashboard functionality.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <footer className="py-12 border-t border-gray-100 bg-[#fcfdfe]">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
           <div className="flex flex-col gap-2">
