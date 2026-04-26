@@ -1,6 +1,7 @@
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useAuth } from '../../lib/AuthContext';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2, Bell, BellOff, CheckCircle2 } from 'lucide-react';
+import { useNotifications } from '../../hooks/useNotifications';
 
 export default function SettingsView() {
   const [dailyLimit, setDailyLimit] = useLocalStorage('settings_daily_limit', 250);
@@ -8,6 +9,7 @@ export default function SettingsView() {
   const [strictHealth, setStrictHealth] = useLocalStorage('settings_strict_health', true);
   const [autoRouting, setAutoRouting] = useLocalStorage('settings_auto_routing', true);
   const { logOut } = useAuth();
+  const { token, requestPermission, error: notificationError } = useNotifications();
   
   const handleWipeData = async () => {
     if (window.confirm("Are you sure you want to delete all your account data? This action is irreversible.")) {
@@ -150,6 +152,59 @@ export default function SettingsView() {
             <li><strong>Health Blocking:</strong> If the API detects a "Message Rejected" error or high spam filtering, all automated sending is paused for 24 hours to let the domain "cool down".</li>
           </ul>
         </div>
+      </div>
+
+      <div className="utility-card p-8">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-6">
+          <h3 className="text-lg font-medium flex items-center gap-2">
+            <Bell className="w-5 h-5 text-blue-600" />
+            Real-time Push Notifications
+          </h3>
+          {token ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+              <CheckCircle2 className="w-3 h-3" /> Active
+            </span>
+          ) : (
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 bg-gray-50 px-2 py-1 rounded-full border border-gray-100">
+              Disabled
+            </span>
+          )}
+        </div>
+        
+        <div className="flex flex-col md:flex-row gap-8 items-center">
+          <div className="flex-1">
+            <p className="text-sm font-bold text-gray-900 mb-1 uppercase tracking-tight">Stay alerts on replies</p>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Get notified instantly when you receive a reply to your campaign or a new high-priority message arrives in your synchronized inboxes.
+            </p>
+            {notificationError && (
+              <p className="mt-2 text-xs text-red-500 font-medium">Error: {notificationError.message}</p>
+            )}
+          </div>
+          <div className="shrink-0">
+            <button
+              onClick={requestPermission}
+              disabled={!!token}
+              className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-[0.2em] transition-all flex items-center gap-2 ${
+                token 
+                ? 'bg-emerald-50 text-emerald-600 cursor-default' 
+                : 'bg-gray-900 text-white hover:bg-blue-600 shadow-xl shadow-gray-200 cursor-pointer'
+              }`}
+            >
+              {token ? (
+                <>Enabled <Bell className="w-3.5 h-3.5" /></>
+              ) : (
+                <>Enable Notifications <BellOff className="w-3.5 h-3.5" /></>
+              )}
+            </button>
+          </div>
+        </div>
+        {token && (
+          <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Device Registration Token</p>
+             <p className="text-[10px] font-mono text-gray-400 break-all">{token}</p>
+          </div>
+        )}
       </div>
 
       <div className="utility-card p-8">

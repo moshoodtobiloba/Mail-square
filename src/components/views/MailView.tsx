@@ -81,6 +81,7 @@ export default function MailView() {
   };
 
   const [activeLabel, setActiveLabel] = useState('Primary');
+  const [threadMessages, setThreadMessages] = useState<any[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<any | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [leads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
@@ -363,12 +364,19 @@ export default function MailView() {
       else if (activeLabel === 'All Inboxes') query = 'in:inbox';
 
       const pageTokenParam = loadMoreAction && nextPageToken ? `&pageToken=${nextPageToken}` : '';
-      const res = await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}${pageTokenParam}`, {
-        headers: { 
-          Authorization: `Bearer ${idToken}`,
-          'x-gmail-account': activeAccount.email 
-        }
-      });
+      const fetchUrl = `/api/gmail-proxy/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}${pageTokenParam}`;
+      
+      let res;
+      try {
+        res = await fetch(fetchUrl, {
+          headers: { 
+            Authorization: `Bearer ${idToken}`,
+            'x-gmail-account': activeAccount.email 
+          }
+        });
+      } catch (fetchErr: any) {
+        throw new Error("Network connection failed. Please check your internet or firewall. (Error: " + fetchErr.message + ")");
+      }
       
       const contentType = res.headers.get("content-type");
       if (!res.ok) {
@@ -407,12 +415,17 @@ export default function MailView() {
             const currentBatch = data.messages.slice(i, i + batchSize);
             const detailBatchPromises = currentBatch.map(async (msg: any) => {
               try {
-                const detailRes = await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages/${msg.id}`, {
-                   headers: { 
-                     Authorization: `Bearer ${idToken}`,
-                     'x-gmail-account': activeAccount.email 
-                   }
-                });
+                let detailRes;
+                try {
+                  detailRes = await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages/${msg.id}`, {
+                    headers: { 
+                      Authorization: `Bearer ${idToken}`,
+                      'x-gmail-account': activeAccount.email 
+                    }
+                  });
+                } catch (e) {
+                  return null;
+                }
                 if (!detailRes.ok) return null;
                 const detailData = await detailRes.json();
                 
@@ -426,9 +439,40 @@ export default function MailView() {
                   ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : dateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
+                // Enhanced Body Extraction (Base64 Decode)
+                const getBody = (payload: any): string => {
+                  if (payload.body?.data) return payload.body.data;
+                  if (payload.parts) {
+                    const textPart = payload.parts.find((p: any) => p.mimeType === 'text/html') || 
+                                   payload.parts.find((p: any) => p.mimeType === 'text/plain');
+                    if (textPart?.body?.data) return textPart.body.data;
+                    if (textPart?.parts) return getBody(textPart);
+                  }
+                  return '';
+                };
+
+                const rawBody = getBody(detailData.payload);
+                let decodedBody = '';
+                try {
+                  if (rawBody) {
+                    decodedBody = decodeURIComponent(escape(atob(rawBody.replace(/-/g, '+').replace(/_/g, '/'))));
+                  }
+                } catch (e) {
+                  decodedBody = detailData.snippet || 'Loading issue...';
+                }
+
                 return {
-                  id: msg.id, sender, subject, snippet: detailData.snippet, time: timeString, read: isRead,
-                  label: activeLabel, initial: sender.charAt(0).toUpperCase(), color: 'bg-[#4285f4]',
+                  id: msg.id, 
+                  sender, 
+                  subject, 
+                  snippet: detailData.snippet, 
+                  body: decodedBody || detailData.snippet,
+                  threadId: detailData.threadId,
+                  time: timeString, 
+                  read: isRead,
+                  label: activeLabel, 
+                  initial: sender.charAt(0).toUpperCase(), 
+                  color: 'bg-[#4285f4]',
                   tags: detailData.labelIds?.map((l: string) => l.replace('CATEGORY_', ''))
                     .filter((l: string) => ['IMPORTANT', 'STARRED', 'PROMOTIONS', 'SOCIAL', 'UPDATES', 'FORUMS', 'SPAM', 'TRASH'].includes(l)) || []
                 };
@@ -497,9 +541,53 @@ export default function MailView() {
     }
   };
 
-  const handleEmailClick = (email: any) => {
+  const handleEmailClick = async (email: any) => {
     setSelectedEmail(email);
+    setThreadMessages([]); // Reset thread
     if (!email.read) markAsRead(email.id);
+
+    // Fetch full thread to show conversation history
+    if (email.threadId && user && activeAccount) {
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch(`/api/gmail-proxy/gmail/v1/users/me/threads/${email.threadId}`, {
+          headers: { 
+            Authorization: `Bearer ${idToken}`,
+            'x-gmail-account': activeAccount.email 
+          }
+        });
+        if (res.ok) {
+          const threadData = await res.json();
+          const messages = threadData.messages.map((m: any) => {
+            const getBody = (payload: any): string => {
+              if (payload.body?.data) return payload.body.data;
+              if (payload.parts) {
+                const textPart = payload.parts.find((p: any) => p.mimeType === 'text/html') || 
+                               payload.parts.find((p: any) => p.mimeType === 'text/plain');
+                if (textPart?.body?.data) return textPart.body.data;
+                if (textPart?.parts) return getBody(textPart);
+              }
+              return '';
+            };
+            const rawBody = getBody(m.payload);
+            let decodedBody = '';
+            try { if (rawBody) decodedBody = decodeURIComponent(escape(atob(rawBody.replace(/-/g, '+').replace(/_/g, '/')))); } catch(e) {}
+            
+            const from = m.payload.headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
+            return {
+              id: m.id,
+              sender: from.split('<')[0].replace(/"/g, '').trim(),
+              date: new Date(parseInt(m.internalDate)).toLocaleString(),
+              body: decodedBody || m.snippet,
+              snippet: m.snippet
+            };
+          });
+          setThreadMessages(messages);
+        }
+      } catch (err) {
+        console.error('Thread fetch error:', err);
+      }
+    }
   };
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
   const [isSending, setIsSending] = useState(false);
@@ -510,14 +598,34 @@ export default function MailView() {
       return;
     }
 
+    // Handle variable injection if recipient is in leads
+    let processedBody = composeData.body;
+    let processedSubject = composeData.subject;
+    
+    if (composeData.to) {
+      const lead = leads.find(l => l.email.toLowerCase() === composeData.to.toLowerCase());
+      if (lead) {
+        // Support both {var} and {{var}} formats
+        const replaceVars = (text: string) => {
+          return text
+            .replace(/{{firstName}}|{firstName}|{first name}/gi, lead.firstName || 'there')
+            .replace(/{{lastName}}|{lastName}|{last name}/gi, lead.lastName || '')
+            .replace(/{{company}}|{company}/gi, (lead as any).company || '')
+            .replace(/{{email}}|{email}/gi, lead.email || '');
+        };
+        processedBody = replaceVars(processedBody);
+        processedSubject = replaceVars(processedSubject);
+      }
+    }
+
     // Handle scheduling if active
     if (scheduleDate && scheduleTime) {
       const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`).getTime();
       const newScheduledEmail = {
         id: Date.now().toString(),
         to: composeData.to,
-        subject: composeData.subject,
-        body: composeData.body,
+        subject: processedSubject,
+        body: processedBody,
         scheduledAt,
         status: 'Scheduled',
         account: activeAccount.email
@@ -541,17 +649,57 @@ export default function MailView() {
     setIsSending(true);
     try {
       const idToken = await user.getIdToken();
-      const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(composeData.subject)))}?=`;
-      const message = [
-        `To: ${composeData.to}`,
-        `Subject: ${utf8Subject}`,
-        'Content-Type: text/plain; charset="UTF-8"',
-        'MIME-Version: 1.0',
-        '',
-        composeData.body
-      ].join('\r\n');
+      const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(processedSubject)))}?=`;
+      
+      let rawMessage = '';
+      
+      if (attachments.length > 0) {
+        const boundary = "boundary_relay_" + Date.now();
+        let mimeParts = [
+          `To: ${composeData.to}`,
+          `Subject: ${utf8Subject}`,
+          'MIME-Version: 1.0',
+          `Content-Type: multipart/mixed; boundary="${boundary}"`,
+          '',
+          `--${boundary}`,
+          'Content-Type: text/plain; charset="UTF-8"',
+          '',
+          processedBody,
+          ''
+        ];
 
-      const encodedMessage = btoa(unescape(encodeURIComponent(message)))
+        for (const file of attachments) {
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const res = reader.result as string;
+              resolve(res.split(',')[1]);
+            };
+            reader.readAsDataURL(file);
+          });
+
+          mimeParts.push(`--${boundary}`);
+          mimeParts.push(`Content-Type: ${file.type || 'application/octet-stream'}; name="${file.name}"`);
+          mimeParts.push(`Content-Disposition: attachment; filename="${file.name}"`);
+          mimeParts.push(`Content-Transfer-Encoding: base64`);
+          mimeParts.push('');
+          mimeParts.push(base64);
+          mimeParts.push('');
+        }
+        mimeParts.push(`--${boundary}--`);
+        rawMessage = mimeParts.join('\r\n');
+      } else {
+        rawMessage = [
+          `To: ${composeData.to}`,
+          `Subject: ${utf8Subject}`,
+          'Content-Type: text/plain; charset="UTF-8"',
+          'MIME-Version: 1.0',
+          '',
+          processedBody
+        ].join('\r\n');
+      }
+
+      const encodedMessage = btoa(unescape(encodeURIComponent(rawMessage)))
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/, '');
@@ -589,13 +737,40 @@ export default function MailView() {
 
   const handleReply = () => {
     if (!activeEmailData) return;
+    if (activeEmailData.sender.toLowerCase().includes(activeAccount.email.toLowerCase())) {
+       // Find the recipient from the thread or original headers
+       // Simplified for this context
+    }
+
     setComposeData({
       to: activeEmailData.sender.includes('<') ? activeEmailData.sender.split('<')[1].split('>')[0] : activeEmailData.sender,
-      subject: `Re: ${activeEmailData.subject}`,
+      subject: activeEmailData.subject.startsWith('Re:') ? activeEmailData.subject : `Re: ${activeEmailData.subject}`,
       body: `\n\n--- On ${activeEmailData.time}, ${activeEmailData.sender} wrote: ---\n> ${activeEmailData.snippet}`
     });
+    setAttachments([]); // Clear attachments for new compose
     setIsComposeOpen(true);
     setSelectedEmail(null);
+  };
+
+  const handleForward = () => {
+    if (!activeEmailData) return;
+    setComposeData({
+      to: '',
+      subject: activeEmailData.subject.startsWith('Fwd:') ? activeEmailData.subject : `Fwd: ${activeEmailData.subject}`,
+      body: `\n\n---------- Forwarded message ----------\nFrom: ${activeEmailData.sender}\nDate: ${activeEmailData.time}\nSubject: ${activeEmailData.subject}\n\n${activeEmailData.snippet}`
+    });
+    setAttachments([]); // Clear attachments for new compose
+    setIsComposeOpen(true);
+    setSelectedEmail(null);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setAttachments(prev => [...prev, ...files]);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const insertVariable = (variable: string) => {
@@ -666,7 +841,10 @@ export default function MailView() {
     setSelectedEmails(new Set());
   };
 
-  const activeEmailData = selectedEmail ? realEmails.find(e => e.id === selectedEmail) : null;
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeEmailData = selectedEmail;
 
   // Auto-Save Draft Logic
   const draftTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1644,13 +1822,30 @@ export default function MailView() {
                   </button>
                 </div>
                 
-                <div className="text-gray-800 text-sm sm:text-base leading-relaxed p-4 sm:p-8 bg-gray-50/30 rounded-2xl border border-gray-100 mb-8 font-sans shadow-sm break-words whitespace-pre-wrap">
-                  {activeEmailData?.snippet}
-                  <br/><br/>
-                  Hi {activeAccount.name.split(' ')[0]},<br/><br/>
-                  We are reaching out regarding the current status of your project. Please review the attached requirements and respond at your earliest convenience.<br/><br/>
-                  Best Regards,<br/>
-                  {activeEmailData?.sender} Team
+                {/* Threaded Conversations */}
+                <div className="space-y-6 mb-12">
+                  {threadMessages.length > 0 ? threadMessages.map((msg, mIdx) => (
+                    <div key={msg.id} className="animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: `${mIdx * 50}ms` }}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-400">
+                          {msg.sender.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-900">{msg.sender}</p>
+                          <p className="text-[10px] text-gray-400">{msg.date}</p>
+                        </div>
+                      </div>
+                      <div 
+                        className={`text-gray-800 text-sm sm:text-base leading-relaxed p-6 sm:p-8 rounded-[2rem] border shadow-sm break-words ${msg.sender.toLowerCase().includes(activeAccount.email.toLowerCase()) ? 'bg-blue-50/30 border-blue-100' : 'bg-gray-50/30 border-gray-100'}`}
+                        dangerouslySetInnerHTML={{ __html: msg.body }}
+                      />
+                    </div>
+                  )) : (
+                    <div 
+                      className="text-gray-800 text-sm sm:text-base leading-relaxed p-4 sm:p-8 bg-gray-50/30 rounded-2xl border border-gray-100 font-sans shadow-sm break-words"
+                      dangerouslySetInnerHTML={{ __html: activeEmailData?.body || activeEmailData?.snippet }}
+                    />
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -1660,7 +1855,10 @@ export default function MailView() {
                   >
                     <CornerUpLeft className="w-4 h-4" /> Reply
                   </button>
-                  <button className="px-5 py-2.5 bg-white border border-gray-300 rounded-full text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer shadow-sm transition-colors">
+                  <button 
+                    onClick={handleForward}
+                    className="px-5 py-2.5 bg-white border border-gray-300 rounded-full text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+                  >
                     <CornerUpRight className="w-4 h-4" /> Forward
                   </button>
                   <div className="relative group/emoji">
@@ -1681,14 +1879,18 @@ export default function MailView() {
         </div>
       </div>
 
-      {/* Floating Compose Button */}
-      <button 
-        onClick={() => setIsComposeOpen(true)}
-        className="absolute bottom-28 md:bottom-6 right-6 flex items-center justify-center gap-3 bg-[#c2e7ff] hover:bg-[#b0dcf5] text-[#001d35] px-5 py-4 rounded-[20px] font-medium transition-colors cursor-pointer shadow-lg hover:shadow-xl z-40 group"
-      >
-        <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
-        <span className="text-[15px] pr-1">Compose</span>
-      </button>
+      {/* Floating Compose Button (Stable & High Visibility) */}
+      {!isComposeOpen && (
+         <button 
+           onClick={() => setIsComposeOpen(true)}
+           className="fixed bottom-[110px] lg:bottom-12 right-6 sm:right-12 w-16 h-16 sm:w-20 sm:h-20 bg-blue-600 text-white rounded-[2rem] shadow-[0_20px_50px_rgba(29,78,216,0.4)] flex items-center justify-center z-[55] animate-in zoom-in slide-in-from-bottom-10 duration-500 hover:scale-110 active:scale-95 transition-all group"
+         >
+            <Plus className="w-8 h-8 sm:w-10 sm:h-10 group-hover:rotate-90 transition-transform duration-500" />
+            <div className="absolute right-full mr-4 bg-gray-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl whitespace-nowrap">
+              Initialized Intel Dispatch
+            </div>
+         </button>
+      )}
 
       {/* Compose Window (Manual Sending / Auto-Drafting) */}
       {isComposeOpen && (
@@ -1701,6 +1903,15 @@ export default function MailView() {
             </div>
           </div>
           <div className="flex-1 flex flex-col p-4 sm:p-6 space-y-6 sm:space-y-4 overflow-y-auto">
+             {/* Hidden File Input */}
+             <input 
+               type="file" 
+               multiple 
+               ref={fileInputRef} 
+               onChange={handleFileUpload} 
+               className="hidden" 
+             />
+
              <div className="group relative">
                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Recipient</label>
                <div className="relative">
@@ -1758,26 +1969,44 @@ export default function MailView() {
                  onChange={(e) => setComposeData({ ...composeData, body: e.target.value })}
                ></textarea>
              </div>
+
+             {/* Attachments List */}
+             {attachments.length > 0 && (
+               <div className="flex flex-wrap gap-2 pt-2 pb-2 border-t border-gray-50 max-h-32 overflow-y-auto">
+                 {attachments.map((file, i) => (
+                   <div key={i} className="flex items-center gap-2 bg-gray-100 px-3 py-2 rounded-xl text-[10px] font-bold text-gray-700 border border-gray-200">
+                     <Paperclip className="w-3 h-3 text-gray-400" />
+                     <span className="max-w-[120px] truncate">{file.name}</span>
+                     <button 
+                       type="button"
+                       onClick={() => removeAttachment(i)} 
+                       className="p-1 hover:bg-gray-200 rounded-lg text-gray-400 cursor-pointer"
+                     >
+                       <X className="w-3 h-3" />
+                     </button>
+                   </div>
+                 ))}
+               </div>
+             )}
           </div>
-          <div className="p-4 sm:p-5 bg-gray-50/80 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
-             <div className="flex items-center justify-between w-full sm:w-auto gap-3 sm:gap-4 flex-1">
-                <div className="flex flex-row items-center gap-2 sm:gap-3 w-full sm:w-auto">
+          <div className="p-4 sm:p-5 bg-gray-50/80 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-2">
+             <div className="flex items-center justify-between w-full sm:w-auto gap-2 sm:gap-3 flex-1 overflow-x-auto hide-scrollbar pb-2 sm:pb-0">
+                <div className="flex flex-row items-center gap-2 sm:gap-2 w-full sm:w-auto shrink-0">
                   <button 
                     onClick={handleSendEmail}
                     disabled={isSending}
-                    className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-5 sm:px-8 py-3 sm:py-3.5 rounded-2xl text-[13px] sm:text-sm font-black transition-all cursor-pointer shadow-xl shadow-blue-100 hover:shadow-blue-200 flex items-center justify-center gap-2 sm:gap-3 uppercase tracking-[0.1em] active:scale-95"
+                    className="shrink-0 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white px-5 sm:px-6 py-3 sm:py-3 rounded-2xl text-[12px] sm:text-xs font-black transition-all cursor-pointer shadow-xl shadow-blue-100 hover:shadow-blue-200 flex items-center justify-center gap-2 uppercase tracking-[0.1em] active:scale-95"
                   >
-                    {isSending ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <SendIcon className="w-4 h-4 fill-current" />}
-                    {isSending ? 'Syncing...' : (scheduleDate && scheduleTime ? 'Schedule Engine' : 'Send Now')}
+                    {isSending ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <SendIcon className="w-3.5 h-3.5 fill-current" />}
+                    {isSending ? 'Syncing...' : (scheduleDate && scheduleTime ? 'Schedule' : 'Send')}
                   </button>
                   
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <button 
                       onClick={() => setShowSchedulePicker(!showSchedulePicker)}
-                      className={`h-full sm:h-auto p-3 sm:p-3.5 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 text-[10px] sm:text-xs font-black uppercase tracking-widest border-2 ${scheduleDate && scheduleTime ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'}`}
+                      className={`h-full sm:h-auto p-3 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest border-2 ${scheduleDate && scheduleTime ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-100 text-gray-400 hover:bg-gray-50'}`}
                     >
-                      <Calendar className="w-5 h-5 sm:w-4 sm:h-4 text-[13px]" />
-                      <span className="hidden sm:inline">{scheduleDate && scheduleTime ? 'Locked' : 'Schedule'}</span>
+                      <Calendar className="w-4 h-4" />
                     </button>
                     
                     <AnimatePresence>
@@ -1841,7 +2070,13 @@ export default function MailView() {
                   </div>
                 </div>
                 <div className="flex gap-0.5 sm:gap-1">
-                  <button className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Attach Files"><Paperclip className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" 
+                    title="Attach Files"
+                  >
+                    <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
                   <div className="relative group/templates">
                     <button className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Variable"><List className="w-4 h-4 sm:w-5 sm:h-5" /></button>
                     <div className="absolute bottom-full left-0 mb-3 hidden group-hover/templates:flex flex-col bg-white border border-gray-100 shadow-2xl rounded-2xl py-3 w-56 z-[110] animate-in slide-in-from-bottom-2">

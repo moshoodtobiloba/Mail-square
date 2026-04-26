@@ -1,4 +1,4 @@
-import { Mail, Zap, Shield, ArrowRight } from 'lucide-react';
+import { Mail, Zap, Shield, ArrowRight, Users } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
 import { Logo, LogoText } from '../ui/Logo';
 import { Link } from 'react-router-dom';

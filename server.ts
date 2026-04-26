@@ -161,14 +161,21 @@ async function startServer() {
     const targetPath = req.params[0] || "";
     const email = req.headers["x-gmail-account"] as string;
 
-    if (!email) return res.status(400).json({ error: "Missing x-gmail-account header" });
+    console.log(`[GmailProxy] ${req.method} ${targetPath} for ${email}`);
+
+    if (!email) {
+      console.warn("[GmailProxy] Missing x-gmail-account header");
+      return res.status(400).json({ error: "Missing x-gmail-account header" });
+    }
 
     try {
       // Get tokens from Firestore
       const db = getDb();
-      const tokenDoc = await db.collection("users").doc(req.user.uid).collection("gmail_tokens").doc(email.toLowerCase()).get();
+      const userUid = req.user.uid;
+      const tokenDoc = await db.collection("users").doc(userUid).collection("gmail_tokens").doc(email.toLowerCase()).get();
       
       if (!tokenDoc.exists) {
+        console.warn(`[GmailProxy] Account not connected: ${email}`);
         return res.status(404).json({ error: "ACCOUNT_NOT_CONNECTED", message: "Gmail account not connected to relay." });
       }
 
@@ -176,19 +183,17 @@ async function startServer() {
       const client = getOAuthClient();
       client.setCredentials(tokens);
 
-      // Check if expired and refresh if needed
-      // google-auth-library handles this if we use the client to request
-      
       const response = await client.request({
-        url: `https://gmail.googleapis.com/${targetPath}`,
+        url: `https://gmail.googleapis.com/${targetPath.replace(/^gmail\//, "")}`,
         method: req.method,
-        data: (req.method === 'GET' || req.method === 'HEAD') ? undefined : req.body,
+        data: (req.method === "GET" || req.method === "HEAD") ? undefined : req.body,
         params: req.query,
       });
 
       // If tokens changed (refreshed), update Firestore
       const currentTokens = client.credentials;
       if (currentTokens.access_token !== tokens.access_token) {
+        console.log(`[GmailProxy] Token refreshed for ${email}`);
         await tokenDoc.ref.update({
           ...currentTokens,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -197,12 +202,13 @@ async function startServer() {
 
       res.status(response.status).json(response.data);
     } catch (error: any) {
+      console.error(`[GmailProxy] Error ${targetPath}:`, error.message);
       if (error.response?.status === 401 || error.response?.status === 403) {
-        console.error("Token invalid or expired. User should re-connect.");
         res.status(401).json({ error: "Session expired. Please reconnect your Gmail account." });
       } else {
-        console.error("Gmail Proxy Error:", error.message);
-        res.status(500).json({ error: "Temporary communication error. Please try again in 5 seconds." });
+        const status = error.response?.status || 500;
+        const msg = error.response?.data?.error?.message || error.message || "Communication error";
+        res.status(status).json({ error: msg });
       }
     }
   });
