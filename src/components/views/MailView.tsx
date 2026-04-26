@@ -140,6 +140,7 @@ export default function MailView() {
   }
   
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const activeAccount = useMemo(() => {
     const rawAccount = inboxes[activeAccountIndex];
@@ -1978,20 +1979,29 @@ export default function MailView() {
                     <CornerUpRight className="w-4 h-4" /> Forward
                   </button>
                   <div className="relative group/emoji">
-                    <button className="w-10 h-10 border border-gray-300 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-50 cursor-pointer shadow-sm transition-colors" title="React with emoji">
+                    <button 
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="w-10 h-10 border border-gray-300 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-50 cursor-pointer shadow-sm transition-colors" 
+                      title="React with emoji"
+                    >
                       <Smile className="w-4 h-4" />
                     </button>
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/emoji:flex items-center gap-1 bg-white border border-gray-200 rounded-full shadow-lg px-2 py-1 z-50">
-                       {['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯'].map(emoji => (
-                         <button 
-                           key={emoji}
-                           onClick={() => toggleReaction(emoji)}
-                           className="hover:bg-gray-100 rounded-full p-2 cursor-pointer text-lg transition-colors"
-                         >
-                           {emoji}
-                         </button>
-                       ))}
-                    </div>
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex items-center gap-1 bg-white border border-gray-200 rounded-full shadow-lg px-2 py-1 z-50 animate-in fade-in zoom-in-95 duration-200">
+                         {['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯'].map(emoji => (
+                           <button 
+                             key={emoji}
+                             onClick={() => {
+                               toggleReaction(emoji);
+                               setShowEmojiPicker(false);
+                             }}
+                             className="hover:bg-gray-100 rounded-full p-2 cursor-pointer text-lg transition-colors"
+                           >
+                             {emoji}
+                           </button>
+                         ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -217,12 +217,12 @@ export default function App() {
               {/* View Content (Scrollable) */}
               <div className="flex-1 overflow-y-auto bg-white sm:bg-[#fcfdfe]">
                 <div className="max-w-[1440px] mx-auto p-4 sm:p-8 min-h-full flex flex-col">
-                  <div className="flex-1 pb-72 lg:pb-12">
+                  <div className="flex-1 pb-32 lg:pb-12">
                     {renderView()}
                   </div>
                   
                   {/* App Footer In-View */}
-                  <footer className="mt-auto pt-12 pb-80 sm:pb-8 border-t border-gray-50 flex flex-col sm:flex-row items-center justify-between gap-6">
+                  <footer className="mt-auto pt-12 pb-32 sm:pb-8 border-t border-gray-50 flex flex-col sm:flex-row items-center justify-between gap-6">
                     <div className="flex flex-col gap-1 items-center sm:items-start text-center sm:text-left">
                       <div className="flex items-center gap-2 mb-1">
                         <Logo size={14} />
