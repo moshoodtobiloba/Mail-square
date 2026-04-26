@@ -30,6 +30,20 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  const [isServerHealthy, setIsServerHealthy] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        setIsServerHealthy(res.ok);
+      } catch (e) {
+        setIsServerHealthy(false);
+      }
+    };
+    checkHealth();
+  }, []);
+
   const [isNotifOpen, setIsNotifOpen] = useState(false);
 
   useEffect(() => {
@@ -128,8 +142,10 @@ export default function App() {
                 <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Network Status</p>
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-bold text-gray-600">Enterprise Relay Active</span>
+                    <div className={`w-2 h-2 rounded-full ${isServerHealthy === false ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`} />
+                    <span className="text-xs font-bold text-gray-600">
+                      {isServerHealthy === false ? 'Relay Disconnected' : 'Enterprise Relay Active'}
+                    </span>
                   </div>
                 </div>
 

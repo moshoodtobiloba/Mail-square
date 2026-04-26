@@ -59,8 +59,13 @@ export default function MailView() {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       
+      const contentType = res.headers.get("content-type");
       if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
+        let errorMsg = `Server returned ${res.status}`;
+        if (contentType && contentType.includes("text/html")) {
+          errorMsg = "Backend Proxy not found. This app requires the server.ts backend to be running. If this is a static host like Netlify, the auth server is unavailable.";
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await res.json();
@@ -76,11 +81,16 @@ export default function MailView() {
         setApiError('CONFIG_MISSING');
         alert("Server not configured for OAuth. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.");
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to get auth URL", e);
       setLoadingEmails(false);
       setApiError('AUTH_SERVER_ERROR');
-      alert("Error connecting to auth server. Please try again in a moment.");
+      
+      if (window.location.hostname.includes('netlify.app')) {
+        alert("CRITICAL: This app requires a Node.js backend. Netlify is a static host and cannot run the authentication server. Please use the AI Studio preview or deploy to a platform that supports Node.js (like Cloud Run or Heroku).");
+      } else {
+        alert("Error connecting to auth server: " + e.message);
+      }
     }
   };
 
@@ -141,6 +151,20 @@ export default function MailView() {
   
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [isServerHealthy, setIsServerHealthy] = useState<boolean | null>(null);
+
+  // Check backend health on mount
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health');
+        setIsServerHealthy(res.ok);
+      } catch (e) {
+        setIsServerHealthy(false);
+      }
+    };
+    checkHealth();
+  }, []);
 
   const activeAccount = useMemo(() => {
     const rawAccount = inboxes[activeAccountIndex];
@@ -977,9 +1001,21 @@ export default function MailView() {
   }, [composeData.body, composeData.subject, isComposeOpen]);
 
   return (
-    <div className="flex bg-white h-full relative border-none sm:border border-gray-200 rounded-none sm:rounded-xl shadow-none sm:shadow-sm overflow-hidden">
-      
-      {/* Sidebar Overlay (Mobile) */}
+    <div className="flex bg-white h-full relative border-none sm:border border-gray-200 rounded-none sm:rounded-xl shadow-none sm:shadow-sm overflow-hidden flex-col">
+      {isServerHealthy === false && (
+        <div className="bg-amber-50 border-b border-amber-200 p-3 flex items-center justify-center gap-3 z-[100] animate-in slide-in-from-top duration-300">
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+          <div className="text-sm font-medium text-amber-800">
+            <span className="font-bold">Backend Offline:</span> Authentication and email sync are unavailable.
+            {window.location.hostname.includes('netlify.app') ? (
+              <span className="ml-1">Netlify is a static host; please use the AI Studio preview for full functionality.</span>
+            ) : (
+              <span className="ml-1">Ensure the Node.js server (server.ts) is running.</span>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/20 z-[60] sm:hidden backdrop-blur-[1px]" 
@@ -2247,6 +2283,7 @@ export default function MailView() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
