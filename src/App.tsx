@@ -106,7 +106,7 @@ export default function App() {
         !user ? (
           <LandingView />
         ) : (
-          <div className="h-[100dvh] flex flex-col lg:flex-row overflow-hidden bg-[#f8f9fa]">
+          <div className="h-screen h-[100dvh] flex flex-col lg:flex-row overflow-hidden bg-[#f8f9fa] isolate">
             {/* Desktop Navigation Sidebar (Stable & Professional) */}
             <aside className="hidden lg:flex w-72 bg-white border-r border-gray-100 flex-col shrink-0 z-50">
               <div className="p-6">

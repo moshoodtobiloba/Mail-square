@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { OAuth2Client } from "google-auth-library";
@@ -35,9 +34,8 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json());
   app.use(cookieParser());
@@ -208,13 +206,21 @@ async function startServer() {
       } else {
         const status = error.response?.status || 500;
         const msg = error.response?.data?.error?.message || error.message || "Communication error";
-        res.status(status).json({ error: msg });
+        res.status(status).json({ status, error: msg });
       }
     }
   });
 
+  return app;
+}
+
+async function startServer() {
+  const app = await createApp();
+  const PORT = 3000;
+
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.NETLIFY) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

@@ -3,6 +3,10 @@
   publish = "dist"
 
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
   status = 200
+
+[functions]
+  node_bundle = true
+  external_node_modules = ["vite"]

@@ -86,11 +86,28 @@ export default function MailView() {
       setLoadingEmails(false);
       setApiError('AUTH_SERVER_ERROR');
       
-      if (window.location.hostname.includes('netlify.app')) {
-        alert("CRITICAL: This app requires a Node.js backend. Netlify is a static host and cannot run the authentication server. Please use the AI Studio preview or deploy to a platform that supports Node.js (like Cloud Run or Heroku).");
-      } else {
-        alert("Error connecting to auth server: " + e.message);
+      const isNetlify = window.location.hostname.includes('netlify.app');
+      const isVercel = window.location.hostname.includes('vercel.app');
+      
+      let errorMsg = "Error connecting to auth server: " + e.message;
+      if (isNetlify || isVercel) {
+        errorMsg = `CRITICAL: Authentication Relay not responding on ${isNetlify ? 'Netlify' : 'Vercel'}. \n\n1. Ensure you have deployed the latest code.\n2. Verify environment variables (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, APP_URL) are set in your provider's dashboard.\n3. Check your provider's logs for any crashes.`;
       }
+      alert(errorMsg);
+    }
+  };
+
+  const checkRelayHealth = async () => {
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      if (res.ok) {
+        alert("✅ Relay is ONLINE\n\nIdentity: " + data.identity + "\nStatus: " + data.status);
+      } else {
+        alert("❌ Relay returned error: " + res.status);
+      }
+    } catch (e: any) {
+      alert("❌ Relay is UNREACHABLE\n\nError: " + e.message + "\n\nThis usually means the backend is not running or the URL path /api/health is not correctly routed.");
     }
   };
 
@@ -1008,10 +1025,42 @@ export default function MailView() {
           <div className="text-sm font-medium text-amber-800">
             <span className="font-bold">Backend Offline:</span> Authentication and email sync are unavailable.
             {window.location.hostname.includes('netlify.app') ? (
-              <span className="ml-1">Netlify is a static host; please use the AI Studio preview for full functionality.</span>
+              <span className="ml-1">Checking settings or waiting for deployment?</span>
             ) : (
               <span className="ml-1">Ensure the Node.js server (server.ts) is running.</span>
             )}
+            <button 
+              onClick={checkRelayHealth}
+              className="ml-3 px-3 py-1 bg-amber-600 text-white text-[10px] uppercase font-black tracking-widest rounded-lg hover:bg-amber-700 transition-all cursor-pointer"
+            >
+              Verify Connection
+            </button>
+          </div>
+        </div>
+      )}
+
+      {apiError === 'AUTH_SERVER_ERROR' && (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-50/50">
+          <div className="w-20 h-20 bg-amber-50 rounded-[2rem] flex items-center justify-center mb-6 border border-amber-100 shadow-xl shadow-amber-900/5">
+            <Zap className="w-10 h-10 text-amber-500" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900 mb-3 tracking-tight uppercase italic">Sync Connection Alert</h2>
+          <p className="text-gray-500 max-w-md mx-auto mb-8 font-medium leading-relaxed">
+            We are unable to establish a secure handshake with the authentication relay. This is usually due to missing environment variables or an offline backend.
+          </p>
+          <div className="flex gap-4">
+            <button 
+              onClick={() => connectGmailAccount()} 
+              className="px-8 py-4 bg-gray-900 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] shadow-xl shadow-gray-200 hover:-translate-y-1 transition-all"
+            >
+              Try Again
+            </button>
+            <button 
+              onClick={checkRelayHealth} 
+              className="px-8 py-4 bg-white text-blue-600 border border-blue-100 rounded-2xl text-xs font-black uppercase tracking-[0.2em] shadow-sm hover:bg-blue-50 transition-all"
+            >
+              Verify Connection
+            </button>
           </div>
         </div>
       )}

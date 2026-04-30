@@ -44,39 +44,50 @@ const PrivacyPolicy: React.FC = () => {
           <div className="space-y-12">
             <section>
               <h2 className="text-xl font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-3">
-                <span className="text-blue-600">01.</span> Commitment to Privacy
+                <span className="text-blue-600">01.</span> Data Collection & Usage
               </h2>
-              <p className="text-gray-600 leading-relaxed font-medium">
-                At MailSquare ("we," "our," or "us"), privacy is not a feature—it is our core infrastructure. We are committed to protecting your personal information and your right to privacy. This policy dictates our strict protocols for data collection and security.
-              </p>
+              <div className="space-y-4">
+                <p className="text-gray-600 leading-relaxed font-medium">
+                  At MailSquare ("we," "our," or "us"), we collect personal information that you provide to us, including your name, email address, and profile information obtained through Google OAuth.
+                </p>
+                <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
+                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3">How We Use Your Data</h3>
+                  <ul className="text-sm text-gray-600 list-disc list-inside space-y-2 font-medium">
+                    <li>To provide and maintain our service interface.</li>
+                    <li>To synchronize your Gmail messages for display in your unified dashboard.</li>
+                    <li>To allow you to send and manage emails directly from the MailSquare platform.</li>
+                    <li>To notify you about changes to our application.</li>
+                  </ul>
+                </div>
+              </div>
             </section>
 
             <section className="bg-blue-50/50 rounded-3xl p-8 border border-blue-100/50">
               <h2 className="text-xl font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-3">
-                <span className="text-blue-600">02.</span> Google API Disclosure
+                <span className="text-blue-600">02.</span> Google API Disclosure & Limited Use
               </h2>
               <div className="space-y-4">
                 <p className="text-gray-900 font-bold leading-relaxed">
                   MailSquare's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" className="text-blue-600 underline" target="_blank">Google API Service User Data Policy</a>, including the Limited Use requirements.
                 </p>
                 <p className="text-gray-600 text-sm leading-relaxed">
-                  We strictly comply with Google's requirements for handling sensitive OAuth scopes. Your data is restricted to providing you with the unified dashboard interface and is never shared for advertising or unauthorized purposes.
+                  We use Gmail API data strictly to provide user-facing features (reading/sending emails as initiated by the user). We do NOT transfer this data to third parties, especially for advertising, data brokers, or any uses prohibited by Google’s policies.
                 </p>
               </div>
             </section>
 
             <section>
               <h2 className="text-xl font-black text-gray-900 mb-4 uppercase tracking-tight flex items-center gap-3">
-                <span className="text-blue-600">03.</span> Data Governance & Gmail Integration
+                <span className="text-blue-600">03.</span> Data Sharing, Retention & Deletion
               </h2>
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
-                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3">Email Synchronization</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed font-medium">We access message metadata and content via Gmail API to facilitate real-time synchronization across your connected accounts.</p>
+                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3">No Data Sharing</h3>
+                  <p className="text-sm text-gray-600 leading-relaxed font-medium">We do not sell, rent, or trade your data. We do not share your Google user data with third parties unless required by law.</p>
                 </div>
                 <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
-                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3">Transmission Protocols</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed font-medium">Outbound communications are processed strictly upon user initiation using authenticated OAuth tokens.</p>
+                  <h3 className="font-black text-xs uppercase tracking-widest text-gray-400 mb-3">Retention & Deletion</h3>
+                  <p className="text-sm text-gray-600 leading-relaxed font-medium">We retain your data only for as long as your account is active. You may request data deletion at any time by contacting us, and we will purge all stored tokens and metadata within 30 days.</p>
                 </div>
               </div>
             </section>
@@ -86,7 +97,7 @@ const PrivacyPolicy: React.FC = () => {
                 <span className="text-blue-600">04.</span> Information Security
               </h2>
               <p className="text-gray-600 leading-relaxed font-medium">
-                We implement industry-standard encryption for data in transit and at rest. Access to your data is strictly limited to automated processes required to serve the application interface.
+                We implement industry-standard encryption (SSL/TLS) to protect your data during transmission. Your Google OAuth tokens are stored securely in an encrypted database (Firebase Firestore) to ensure only you have access to your synced content.
               </p>
             </section>
 
