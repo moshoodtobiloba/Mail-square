@@ -227,7 +227,8 @@ export default function MailView() {
     const path = 'message_reactions';
     const q = query(
       collection(db, path),
-      where('messageId', '==', selectedEmail.id)
+      where('messageId', '==', selectedEmail.id),
+      where('userId', '==', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

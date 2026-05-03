@@ -83,11 +83,12 @@ service cloud.firestore {
 
     // --- Collections ---
     match /message_reactions/{reactionId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn()
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(reactionId) && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(reactionId)
                     && isValidMessageReaction(incoming())
                     && incoming().createdAt == request.time;
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(reactionId) && resource.data.userId == request.auth.uid;
     }
 
     match /users/{userId} {

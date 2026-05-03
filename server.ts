@@ -32,13 +32,28 @@ const getDb = () => {
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const APP_URL = process.env.APP_URL || "http://localhost:3000";
+
+// In AI Studio, the APP_URL should match the shared app URL for OAuth callbacks to work.
+// We default to the provided env var, or attempt to derive it from the request headers if available.
+let APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 export async function createApp() {
   const app = express();
 
   app.use(express.json());
   app.use(cookieParser());
+
+  // Dynamic APP_URL detection to support Shared Views without manual config overhead
+  app.use((req, res, next) => {
+    if (!process.env.APP_URL) {
+      const host = req.headers['host'];
+      const protocol = req.headers['x-forwarded-proto'] || 'http';
+      if (host) {
+        APP_URL = `${protocol}://${host}`;
+      }
+    }
+    next();
+  });
 
   app.get("/api/health", async (req, res) => {
     try {
