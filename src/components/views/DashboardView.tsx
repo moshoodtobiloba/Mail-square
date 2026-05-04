@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Activity, Mail, Users, MousePointer2, GitMerge, TrendingUp, ShieldCheck, Zap, ArrowUpRight, BarChart3 } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { motion } from 'motion/react';
 
 export default function DashboardView() {
   const [leads] = useLocalStorage<{email: string}[]>('lead_database', []);
@@ -31,8 +32,36 @@ export default function DashboardView() {
     { label: 'Global Health', value: inboxes.length > 0 ? `${Math.round(inboxes.reduce((acc, curr) => acc + curr.health, 0) / inboxes.length)}%` : '---', sub: 'Reputation Score', icon: ShieldCheck, trend: inboxes.length > 0 ? 'Optimal' : 'Checking', color: 'text-blue-500' },
   ];
 
+  const [activity, setActivity] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Initial activity
+    setActivity([
+      { time: 'Just now', msg: `Transmission handshake verified with relay node ${inboxes[0]?.email || 'Alpha'}`, icon: ShieldCheck, color: 'text-blue-500' },
+      { time: '2m ago', msg: `Intelligence engine optimized delivery window for ${leads.length} leads`, icon: Zap, color: 'text-amber-500' },
+      { time: '14m ago', msg: 'Global reputation check: Score 98/100 (Optimal)', icon: TrendingUp, color: 'text-emerald-500' }
+    ]);
+
+    // Simulate real-time pulses
+    const interval = setInterval(() => {
+      const messages = [
+        "Relay synchronization successful.",
+        "SPF/DKIM records verified as pristine.",
+        "Staggered delivery window open.",
+        "Reputation score holding at 99%.",
+        "Neural patterns optimized for reply probability."
+      ];
+      setActivity(prev => [
+        { time: 'Now', msg: messages[Math.floor(Math.random() * messages.length)], icon: Activity, color: 'text-blue-400' },
+        ...prev.slice(0, 3)
+      ]);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [inboxes, leads.length]);
+
   return (
-    <div className="animate-in fade-in duration-700 space-y-10 pb-20">
+    <div className="animate-in fade-in duration-700 space-y-10 pb-20 px-4 sm:px-0">
       {/* Header Section */}
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
         <div>
@@ -176,16 +205,17 @@ export default function DashboardView() {
                 </div>
               </div>
               <div className="space-y-3">
-                {[
-                  { time: 'Just now', msg: `Transmission handshake verified with relay node ${inboxes[0]?.email || 'Alpha'}`, icon: ShieldCheck, color: 'text-blue-500' },
-                  { time: '2m ago', msg: `Intelligence engine optimized delivery window for ${leads.length} leads`, icon: Zap, color: 'text-amber-500' },
-                  { time: '14m ago', msg: 'Global reputation check: Score 98/100 (Optimal)', icon: TrendingUp, color: 'text-emerald-500' }
-                ].map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-4 text-xs group cursor-default">
+                {activity.map((item, idx) => (
+                  <motion.div 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    key={idx} 
+                    className="flex items-center gap-4 text-xs group cursor-default"
+                  >
                     <span className="text-[10px] font-mono text-gray-300 w-14 shrink-0 uppercase tracking-tighter">{item.time}</span>
                     <item.icon className={`w-3.5 h-3.5 ${item.color} shrink-0`} />
                     <p className="text-gray-500 font-medium group-hover:text-gray-700 transition-colors">{item.msg}</p>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
            </div>

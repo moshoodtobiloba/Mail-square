@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical, File, Calendar, X } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useAuth } from '../../lib/AuthContext';
 import { Logo } from '../ui/Logo';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function CampaignsView() {
   const { user } = useAuth();
   const [activeStep, setActiveStep] = useState(1);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [steps, setSteps] = useLocalStorage('campaign_steps', [
     { 
       id: 1, 
@@ -140,7 +142,14 @@ export default function CampaignsView() {
     setActiveStep(newId);
   };
 
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const sequenceStrength = useMemo(() => {
+    let score = 20;
+    if (currentStep.content.includes('{First Name}')) score += 30;
+    if (currentStep.content.length > 100) score += 20;
+    if (currentStep.subject.length > 5) score += 15;
+    if (currentStep.schedule.days.length >= 5) score += 15;
+    return score;
+  }, [currentStep.content, currentStep.subject, currentStep.schedule.days]);
 
   const getPreviewContent = () => {
     let content = currentStep.content;
@@ -187,41 +196,47 @@ export default function CampaignsView() {
              <span className="text-[10px] font-black text-blue-500 uppercase">{steps.length} Nodes</span>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-             {steps.map((step, index) => (
-               <div 
-                 key={step.id} 
-                 onClick={() => setActiveStep(step.id)}
-                 className={`group border-2 ${activeStep === step.id ? 'border-blue-500 bg-blue-50/30 shadow-md' : 'border-gray-50 hover:border-gray-100 bg-white'} rounded-2xl p-4 cursor-pointer relative transition-all duration-300 active:scale-95`}
-               >
-                  <div className="flex items-center justify-between mb-2">
-                     <span className={`text-[9px] uppercase font-black tracking-widest ${activeStep === step.id ? 'text-blue-600' : 'text-gray-400'}`}>Step {index + 1}</span>
-                     <GripVertical className={`w-4 h-4 ${activeStep === step.id ? 'text-blue-300' : 'text-gray-200'}`} />
-                  </div>
-                  <p className={`text-sm font-black tracking-tight ${activeStep === step.id ? 'text-gray-900' : 'text-gray-600'}`}>{step.name}</p>
-                  
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                     <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total Sent</p>
-                        <p className="text-xs font-black text-gray-900">{step.analytics?.sent || 0}</p>
-                     </div>
-                     <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Replies</p>
-                        <p className="text-xs font-black text-emerald-600">{step.analytics?.replied || 0}</p>
-                     </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
-                    <p className={`text-[10px] font-bold uppercase tracking-tight ${activeStep === step.id ? 'text-blue-500' : 'text-gray-400'}`}>{step.delay}</p>
-                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
-                      step.status === 'Sending' ? 'bg-blue-100 text-blue-700' :
-                      step.status === 'Paused' ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {step.status}
-                    </span>
-                  </div>
-               </div>
-             ))}
+             <AnimatePresence mode="popLayout">
+               {steps.map((step, index) => (
+                 <motion.div 
+                   layout
+                   initial={{ opacity: 0, y: 10 }}
+                   animate={{ opacity: 1, y: 0 }}
+                   exit={{ opacity: 0, scale: 0.9 }}
+                   key={step.id} 
+                   onClick={() => setActiveStep(step.id)}
+                   className={`group border-2 ${activeStep === step.id ? 'border-blue-500 bg-blue-50/30 shadow-md' : 'border-gray-50 hover:border-gray-100 bg-white'} rounded-2xl p-4 cursor-pointer relative transition-all duration-300 active:scale-95`}
+                 >
+                    <div className="flex items-center justify-between mb-2">
+                       <span className={`text-[9px] uppercase font-black tracking-widest ${activeStep === step.id ? 'text-blue-600' : 'text-gray-400'}`}>Step {index + 1}</span>
+                       <GripVertical className={`w-4 h-4 ${activeStep === step.id ? 'text-blue-300' : 'text-gray-200'}`} />
+                    </div>
+                    <p className={`text-sm font-black tracking-tight ${activeStep === step.id ? 'text-gray-900' : 'text-gray-600'}`}>{step.name}</p>
+                    
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                       <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total Sent</p>
+                          <p className="text-xs font-black text-gray-900">{step.analytics?.sent || 0}</p>
+                       </div>
+                       <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
+                          <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Replies</p>
+                          <p className="text-xs font-black text-emerald-600">{step.analytics?.replied || 0}</p>
+                       </div>
+                    </div>
+  
+                    <div className="mt-3 flex items-center justify-between">
+                      <p className={`text-[10px] font-bold uppercase tracking-tight ${activeStep === step.id ? 'text-blue-500' : 'text-gray-400'}`}>{step.delay}</p>
+                      <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
+                        step.status === 'Sending' ? 'bg-blue-100 text-blue-700' :
+                        step.status === 'Paused' ? 'bg-amber-100 text-amber-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {step.status}
+                      </span>
+                    </div>
+                 </motion.div>
+               ))}
+             </AnimatePresence>
           </div>
         </div>
 
@@ -233,6 +248,10 @@ export default function CampaignsView() {
                  <div>
                     <div className="flex items-center gap-4 mb-2">
                       <h3 className="text-xl font-black text-gray-900 tracking-tighter">Node Configuration</h3>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full ${sequenceStrength > 70 ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`} />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Strength: {sequenceStrength}%</span>
+                      </div>
                       <select 
                         value={currentStep.status}
                         onChange={(e) => updateCurrentStep('status', e.target.value)}

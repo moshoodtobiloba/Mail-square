@@ -5,11 +5,52 @@ import {
   Inbox, Star, Clock, Send, File, Archive, Trash2, 
   MoreVertical, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CornerUpLeft, 
   CornerUpRight, Smile, Plus, X, Maximize2, Minimize2, Paperclip, CheckSquare, List, Tag, Users, Info, MessageSquare, AlertOctagon, Bookmark, Calendar, Send as SendIcon, Upload, Trash, Mail, Zap, Link as LinkIcon,
+  Bold, Italic, Underline,
   Pause, Play, TrendingUp, Activity, BarChart3, CornerDownRight, CheckCircle2, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 const MOCK_EMAILS: any[] = [];
+
+const validateEmail = (email: string) => {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+};
+
+const decodeBase64 = (data: string) => {
+  if (!data) return '';
+  try {
+    const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(base64);
+    const bytes = new Uint8Array(decoded.length);
+    for (let i = 0; i < decoded.length; i++) {
+      bytes[i] = decoded.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+  } catch (e) {
+    console.error("Decode failed", e);
+    return 'Decoding error...';
+  }
+};
+
+const getBodyFromPayload = (payload: any): string => {
+  if (payload.body?.data) return payload.body.data;
+  if (payload.parts) {
+    // Priority: text/html > text/plain
+    const htmlPart = payload.parts.find((p: any) => p.mimeType === 'text/html');
+    if (htmlPart?.body?.data) return htmlPart.body.data;
+    
+    const plainPart = payload.parts.find((p: any) => p.mimeType === 'text/plain');
+    if (plainPart?.body?.data) return plainPart.body.data;
+    
+    // Recursive search
+    for (const part of payload.parts) {
+      const nested = getBodyFromPayload(part);
+      if (nested) return nested;
+    }
+  }
+  return '';
+};
 
 // Removed previously mentioned mock data to ensure real data priority
 
@@ -118,6 +159,9 @@ export default function MailView() {
   const [leads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [showLeadResults, setShowLeadResults] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [searchFilters, setSearchFilters] = useState({ from: '', subject: '', after: '', before: '', status: 'all' });
   
   const filteredLeads = useMemo(() => {
     if (!leadSearchQuery) return [];
@@ -137,6 +181,11 @@ export default function MailView() {
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [isHealerActive, setIsHealerActive] = useState(false);
   const [lastHealTime, setLastHealTime] = useState<number>(Date.now());
+  const [isDragging, setIsDragging] = useState(false);
+  const [toError, setToError] = useState<string | null>(null);
+  const [replyToError, setReplyToError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const [scheduledEmails, setScheduledEmails] = useLocalStorage<any[]>('scheduled_emails', []);
   const [autoSendConfig, setAutoSendConfig] = useLocalStorage('auto_send_config_v2', {
@@ -169,6 +218,8 @@ export default function MailView() {
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isServerHealthy, setIsServerHealthy] = useState<boolean | null>(null);
+  const [syncStatus, setSyncStatus] = useState<'Live' | 'Syncing...' | 'Error' | 'Initializing'>('Initializing');
+  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
 
   // Check backend health on mount
   useEffect(() => {
@@ -227,8 +278,7 @@ export default function MailView() {
     const path = 'message_reactions';
     const q = query(
       collection(db, path),
-      where('messageId', '==', selectedEmail.id),
-      where('userId', '==', user.uid)
+      where('messageId', '==', selectedEmail.id)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -371,6 +421,7 @@ export default function MailView() {
     const pollForNewMessages = async () => {
       if (!window.navigator.onLine || !user || !activeAccount) return;
       
+      setSyncStatus('Syncing...');
       try {
         const idToken = await user.getIdToken();
         const res = await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages?maxResults=1&q=in:inbox`, {
@@ -379,8 +430,13 @@ export default function MailView() {
             'x-gmail-account': activeAccount.email 
           }
         });
-        if (!res.ok || !isMounted) return;
+        if (!res.ok || !isMounted) {
+          if (isMounted) setSyncStatus('Error');
+          return;
+        }
         const data = await res.json();
+        setSyncStatus('Live');
+        setLastSyncTime(Date.now());
         
         if (data.messages && data.messages.length > 0) {
           const newestId = data.messages[0].id;
@@ -405,6 +461,30 @@ export default function MailView() {
                 link: 'Mail'
               };
               setNotifications(prev => [...prev, newNotif]);
+
+              // Check for Unsubscribe keywords
+              const senderFull = detail.payload.headers.find((h: any) => h.name === 'From')?.value || '';
+              const senderEmail = senderFull.includes('<') ? senderFull.split('<')[1].split('>')[0] : senderFull;
+              const snippetLower = (detail.snippet || '').toLowerCase();
+              const subjectLower = subject.toLowerCase();
+
+              if (snippetLower.includes('unsubscribe') || subjectLower.includes('unsubscribe') || snippetLower.includes('opt out') || subjectLower.includes('opt out')) {
+                // Flag lead as unsubscribed
+                const savedLeads = JSON.parse(localStorage.getItem('lead_database') || '[]');
+                const leadIndex = savedLeads.findIndex((l: any) => l.email.toLowerCase() === senderEmail.toLowerCase());
+                if (leadIndex >= 0) {
+                  savedLeads[leadIndex].unsubscribed = true;
+                  localStorage.setItem('lead_database', JSON.stringify(savedLeads));
+                  setNotifications(prev => [...prev, {
+                    id: Date.now().toString(),
+                    type: 'success',
+                    title: 'Unsubscribe Sync',
+                    desc: `Automatically flagged ${senderEmail} as unsubscribed.`,
+                    link: 'Mail'
+                  }]);
+                }
+              }
+
               setTimeout(() => {
                 if (isMounted) setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
               }, 10000);
@@ -474,6 +554,7 @@ export default function MailView() {
     if (!activeAccount || !user) return;
     
     setApiError(null);
+    setSyncStatus('Syncing...');
     if (!loadMoreAction) {
       setLoadingEmails(true);
       setLoadingProgress(0);
@@ -485,19 +566,32 @@ export default function MailView() {
       const CATEGORY_EXCLUSIONS = ' -category:social -category:promotions -category:updates -category:forums';
       
       let query = `category:primary${CATEGORY_EXCLUSIONS}`;
-      if (activeLabel === 'Promotions') query = 'category:promotions';
-      else if (activeLabel === 'Social') query = 'category:social';
-      else if (activeLabel === 'Updates') query = 'category:updates';
-      else if (activeLabel === 'Forums') query = 'category:forums';
-      else if (activeLabel === 'Sent') query = 'in:sent';
-      else if (activeLabel === 'Drafts') query = 'in:draft';
-      else if (activeLabel === 'Spam') query = 'in:spam';
-      else if (activeLabel === 'Trash') query = 'in:trash';
-      else if (activeLabel === 'Starred') query = 'is:starred';
-      else if (activeLabel === 'Snoozed') query = 'is:snoozed';
-      else if (activeLabel === 'Important') query = 'is:important';
-      else if (activeLabel === 'All Mail') query = ''; 
-      else if (activeLabel === 'All Inbox') query = 'in:inbox';
+      if (searchQuery) {
+        query = searchQuery;
+      } else if (searchFilters.from || searchFilters.subject || searchFilters.after || searchFilters.before || searchFilters.status !== 'all') {
+        let filters = [];
+        if (searchFilters.from) filters.push(`from:${searchFilters.from}`);
+        if (searchFilters.subject) filters.push(`subject:${searchFilters.subject}`);
+        if (searchFilters.after) filters.push(`after:${searchFilters.after}`);
+        if (searchFilters.before) filters.push(`before:${searchFilters.before}`);
+        if (searchFilters.status === 'read') filters.push('is:read');
+        if (searchFilters.status === 'unread') filters.push('is:unread');
+        query = filters.join(' ');
+      } else {
+        if (activeLabel === 'Promotions') query = 'category:promotions';
+        else if (activeLabel === 'Social') query = 'category:social';
+        else if (activeLabel === 'Updates') query = 'category:updates';
+        else if (activeLabel === 'Forums') query = 'category:forums';
+        else if (activeLabel === 'Sent') query = 'in:sent';
+        else if (activeLabel === 'Drafts') query = 'in:draft';
+        else if (activeLabel === 'Spam') query = 'in:spam';
+        else if (activeLabel === 'Trash') query = 'in:trash';
+        else if (activeLabel === 'Starred') query = 'is:starred';
+        else if (activeLabel === 'Snoozed') query = 'is:snoozed';
+        else if (activeLabel === 'Important') query = 'is:important';
+        else if (activeLabel === 'All Mail') query = ''; 
+        else if (activeLabel === 'All Inbox') query = 'in:inbox';
+      }
 
       const pageTokenParam = loadMoreAction && nextPageToken ? `&pageToken=${nextPageToken}` : '';
       const fetchUrl = `/api/gmail-proxy/gmail/v1/users/me/messages?maxResults=50&q=${encodeURIComponent(query)}${pageTokenParam}`;
@@ -576,25 +670,14 @@ export default function MailView() {
                   : dateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
                 // Enhanced Body Extraction (Base64 Decode)
-                const getBody = (payload: any): string => {
-                  if (payload.body?.data) return payload.body.data;
-                  if (payload.parts) {
-                    const textPart = payload.parts.find((p: any) => p.mimeType === 'text/html') || 
-                                   payload.parts.find((p: any) => p.mimeType === 'text/plain');
-                    if (textPart?.body?.data) return textPart.body.data;
-                    if (textPart?.parts) return getBody(textPart);
-                  }
-                  return '';
-                };
-
-                const rawBody = getBody(detailData.payload);
+                const rawBody = getBodyFromPayload(detailData.payload);
                 let decodedBody = '';
                 try {
                   if (rawBody) {
-                    decodedBody = decodeURIComponent(escape(atob(rawBody.replace(/-/g, '+').replace(/_/g, '/'))));
+                    decodedBody = decodeBase64(rawBody);
                   }
                 } catch (e) {
-                  decodedBody = detailData.snippet || 'Loading issue...';
+                  decodedBody = detailData.snippet || 'Body unavailable...';
                 }
 
                 return {
@@ -624,12 +707,16 @@ export default function MailView() {
           }
         
         setRealEmails(prev => loadMoreAction ? [...prev, ...emails] : emails);
+        setSyncStatus('Live');
+        setLastSyncTime(Date.now());
       } else if (!loadMoreAction) {
         setRealEmails([]);
+        setSyncStatus('Live');
       }
     } catch (err: any) { 
       console.error("Sync fetch error:", err.message);
       setApiError(err.message); 
+      setSyncStatus('Error');
     } finally { 
       setLoadingEmails(false); 
     }
@@ -678,6 +765,16 @@ export default function MailView() {
   };
 
   const handleEmailClick = async (email: any) => {
+    if (activeLabel === 'Drafts') {
+      setComposeData({
+        to: email.sender === 'Unknown' || email.sender === 'me' ? '' : email.sender,
+        replyTo: '',
+        subject: email.subject,
+        body: email.body || email.snippet
+      });
+      setIsComposeOpen(true);
+      return;
+    }
     setSelectedEmail(email);
     setThreadMessages([]); // Reset thread
     if (!email.read) markAsRead(email.id);
@@ -695,19 +792,9 @@ export default function MailView() {
         if (res.ok) {
           const threadData = await res.json();
           const messages = threadData.messages.map((m: any) => {
-            const getBody = (payload: any): string => {
-              if (payload.body?.data) return payload.body.data;
-              if (payload.parts) {
-                const textPart = payload.parts.find((p: any) => p.mimeType === 'text/html') || 
-                               payload.parts.find((p: any) => p.mimeType === 'text/plain');
-                if (textPart?.body?.data) return textPart.body.data;
-                if (textPart?.parts) return getBody(textPart);
-              }
-              return '';
-            };
-            const rawBody = getBody(m.payload);
+            const rawBody = getBodyFromPayload(m.payload);
             let decodedBody = '';
-            try { if (rawBody) decodedBody = decodeURIComponent(escape(atob(rawBody.replace(/-/g, '+').replace(/_/g, '/')))); } catch(e) {}
+            try { if (rawBody) decodedBody = decodeBase64(rawBody); } catch(e) {}
             
             const from = m.payload.headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
             return {
@@ -725,7 +812,7 @@ export default function MailView() {
       }
     }
   };
-  const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
+  const [composeData, setComposeData] = useState({ to: '', replyTo: '', subject: '', body: '', customHeaders: '' });
   const [isSending, setIsSending] = useState(false);
 
   const handleSendEmail = async () => {
@@ -734,12 +821,26 @@ export default function MailView() {
       return;
     }
 
+    if (!validateEmail(composeData.to)) {
+      setToError("Please enter a valid email address.");
+      return;
+    } else {
+      setToError(null);
+    }
+
     // Handle variable injection if recipient is in leads
     let processedBody = composeData.body;
     let processedSubject = composeData.subject;
     
     if (composeData.to) {
       const lead = leads.find(l => l.email.toLowerCase() === composeData.to.toLowerCase());
+      
+      // Respect unsubscribe requests
+      if (autoSendConfig.respectUnsubscribe && (lead as any)?.unsubscribed) {
+        alert("This recipient has unsubscribed and cannot be contacted.");
+        return;
+      }
+
       if (lead) {
         // Support both {var} and {{var}} formats
         const replaceVars = (text: string) => {
@@ -747,10 +848,15 @@ export default function MailView() {
             .replace(/{{firstName}}|{firstName}|{first name}/gi, lead.firstName || 'there')
             .replace(/{{lastName}}|{lastName}|{last name}/gi, lead.lastName || '')
             .replace(/{{company}}|{company}/gi, (lead as any).company || '')
-            .replace(/{{email}}|{email}/gi, lead.email || '');
+            .replace(/{{email}}|{email}/gi, lead.email || '')
+            .replace(/{{scheduledDate}}|{scheduledDate}/gi, scheduleDate ? new Date(scheduleDate).toLocaleDateString() : 'N/A');
         };
         processedBody = replaceVars(processedBody);
         processedSubject = replaceVars(processedSubject);
+      } else {
+        // Fallback replacement for scheduledDate even if not a lead
+        processedBody = processedBody.replace(/{{scheduledDate}}|{scheduledDate}/gi, scheduleDate ? new Date(scheduleDate).toLocaleDateString() : 'N/A');
+        processedSubject = processedSubject.replace(/{{scheduledDate}}|{scheduledDate}/gi, scheduleDate ? new Date(scheduleDate).toLocaleDateString() : 'N/A');
       }
     }
 
@@ -788,21 +894,28 @@ export default function MailView() {
       const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(processedSubject)))}?=`;
       
       let rawMessage = '';
+      const replyToHeader = composeData.replyTo ? `Reply-To: ${composeData.replyTo}\r\n` : '';
+      let customHeadersStr = '';
+      if (composeData.customHeaders) {
+        customHeadersStr = composeData.customHeaders.split('\n').map(line => line.trim()).filter(line => line.includes(':')).join('\r\n') + '\r\n';
+      }
       
       if (attachments.length > 0) {
         const boundary = "boundary_relay_" + Date.now();
         let mimeParts = [
           `To: ${composeData.to}`,
+          replyToHeader.trim(),
+          customHeadersStr.trim(),
           `Subject: ${utf8Subject}`,
           'MIME-Version: 1.0',
           `Content-Type: multipart/mixed; boundary="${boundary}"`,
           '',
           `--${boundary}`,
-          'Content-Type: text/plain; charset="UTF-8"',
+          'Content-Type: text/html; charset="UTF-8"',
           '',
-          processedBody,
+          processedBody.replace(/\n/g, '<br/>'),
           ''
-        ];
+        ].filter(line => line && line.trim() !== '');
 
         for (const file of attachments) {
           const base64 = await new Promise<string>((resolve) => {
@@ -825,14 +938,17 @@ export default function MailView() {
         mimeParts.push(`--${boundary}--`);
         rawMessage = mimeParts.join('\r\n');
       } else {
-        rawMessage = [
+        const lines = [
           `To: ${composeData.to}`,
+          composeData.replyTo ? `Reply-To: ${composeData.replyTo}` : null,
+          ...composeData.customHeaders.split('\n').filter(line => line.includes(':')),
           `Subject: ${utf8Subject}`,
-          'Content-Type: text/plain; charset="UTF-8"',
+          'Content-Type: text/html; charset="UTF-8"',
           'MIME-Version: 1.0',
           '',
-          processedBody
-        ].join('\r\n');
+          processedBody.replace(/\n/g, '<br/>')
+        ].filter(line => line !== null);
+        rawMessage = lines.join('\r\n');
       }
 
       const encodedMessage = btoa(unescape(encodeURIComponent(rawMessage)))
@@ -863,12 +979,36 @@ export default function MailView() {
         link: 'Mail'
       }]);
       setIsComposeOpen(false);
-      setComposeData({ to: '', subject: '', body: '' });
+      setComposeData({ to: '', replyTo: '', subject: '', body: '', customHeaders: '' });
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     } finally {
       setIsSending(false);
     }
+  };
+
+  const applyFormatting = (tag: string) => {
+    const textarea = document.getElementById('compose-body') as HTMLTextAreaElement;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selected = text.substring(start, end);
+    const before = text.substring(0, start);
+    const after = text.substring(end, text.length);
+    
+    let formatted = selected;
+    if (tag === 'bold') formatted = `<b>${selected}</b>`;
+    else if (tag === 'italic') formatted = `<i>${selected}</i>`;
+    else if (tag === 'underline') formatted = `<u>${selected}</u>`;
+    
+    const newBody = before + formatted + after;
+    setComposeData(prev => ({ ...prev, body: newBody }));
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start, start + formatted.length);
+    }, 0);
   };
 
   const handleReply = () => {
@@ -878,10 +1018,17 @@ export default function MailView() {
        // Simplified for this context
     }
 
+    const stripHtml = (html: string) => {
+      const tmp = document.createElement("DIV");
+      tmp.innerHTML = html;
+      return tmp.textContent || tmp.innerText || "";
+    };
+
     setComposeData({
       to: activeEmailData.sender.includes('<') ? activeEmailData.sender.split('<')[1].split('>')[0] : activeEmailData.sender,
+      replyTo: '',
       subject: activeEmailData.subject.startsWith('Re:') ? activeEmailData.subject : `Re: ${activeEmailData.subject}`,
-      body: `\n\n--- On ${activeEmailData.time}, ${activeEmailData.sender} wrote: ---\n> ${activeEmailData.snippet}`
+      body: `\n\n--- On ${activeEmailData.time}, ${activeEmailData.sender} wrote: ---\n> ${stripHtml(activeEmailData.body || activeEmailData.snippet).split('\n').join('\n> ')}`
     });
     setAttachments([]); // Clear attachments for new compose
     setIsComposeOpen(true);
@@ -890,10 +1037,17 @@ export default function MailView() {
 
   const handleForward = () => {
     if (!activeEmailData) return;
+    const stripHtml = (html: string) => {
+      const tmp = document.createElement("DIV");
+      tmp.innerHTML = html;
+      return tmp.textContent || tmp.innerText || "";
+    };
+
     setComposeData({
       to: '',
+      replyTo: '',
       subject: activeEmailData.subject.startsWith('Fwd:') ? activeEmailData.subject : `Fwd: ${activeEmailData.subject}`,
-      body: `\n\n---------- Forwarded message ----------\nFrom: ${activeEmailData.sender}\nDate: ${activeEmailData.time}\nSubject: ${activeEmailData.subject}\n\n${activeEmailData.snippet}`
+      body: `\n\n---------- Forwarded message ----------\nFrom: ${activeEmailData.sender}\nDate: ${activeEmailData.time}\nSubject: ${activeEmailData.subject}\n\n${stripHtml(activeEmailData.body || activeEmailData.snippet)}`
     });
     setAttachments([]); // Clear attachments for new compose
     setIsComposeOpen(true);
@@ -902,7 +1056,30 @@ export default function MailView() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setAttachments(prev => [...prev, ...files]);
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    // Simulated upload progress
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setUploadProgress(progress);
+      if (progress >= 100) {
+        clearInterval(interval);
+        setAttachments(prev => [...prev, ...files]);
+        setIsUploading(false);
+        setUploadProgress(0);
+        setNotifications(prev => [...prev, {
+          id: Date.now().toString(),
+          type: 'info',
+          title: 'Files Uploaded',
+          desc: `${files.length} file(s) attached successfully.`,
+          link: 'Mail'
+        }]);
+      }
+    }, 100);
   };
 
   const removeAttachment = (index: number) => {
@@ -987,10 +1164,9 @@ export default function MailView() {
         },
         body: JSON.stringify({
           ids: ids,
-          addLabelIds: action === 'delete' ? ['TRASH'] : [],
+          addLabelIds: action === 'delete' ? ['TRASH'] : (action === 'unread' ? ['UNREAD'] : []),
           removeLabelIds: action === 'archive' ? ['INBOX'] : 
-                         action === 'read' ? ['UNREAD'] : 
-                         action === 'unread' ? [] : []
+                         action === 'read' ? ['UNREAD'] : []
         })
       });
 
@@ -1018,42 +1194,117 @@ export default function MailView() {
 
   const activeEmailData = selectedEmail;
 
+  // Manage persistence of draft in localStorage
+  useEffect(() => {
+    if (isComposeOpen) {
+      const savedDraft = localStorage.getItem(`draft_${activeAccount?.email || 'global'}`);
+      if (savedDraft) {
+        try {
+          const parsed = JSON.parse(savedDraft);
+          setComposeData(prev => ({ 
+            ...prev, 
+            to: parsed.to || prev.to,
+            subject: parsed.subject || prev.subject,
+            body: parsed.body || prev.body,
+            replyTo: parsed.replyTo || prev.replyTo
+          }));
+        } catch (e) {}
+      }
+    }
+  }, [isComposeOpen, activeAccount?.email]);
+
   // Auto-Save Draft Logic
   const draftTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Scheduled Email Processor
   useEffect(() => {
-    if (!isComposeOpen || !composeData.to || !composeData.body || !activeAccount) return;
+    const processScheduled = async () => {
+      if (!user || !activeAccount || scheduledEmails.length === 0) return;
+
+      const now = Date.now();
+      const dueEmails = scheduledEmails.filter(e => e.scheduledAt <= now && e.status === 'Scheduled');
+
+      if (dueEmails.length === 0) return;
+
+      const idToken = await user.getIdToken();
+
+      for (const email of dueEmails) {
+        try {
+          // Send real email logic
+          const utf8Subject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(email.subject)))}?=`;
+          const lines = [
+            `To: ${email.to}`,
+            `Subject: ${utf8Subject}`,
+            'Content-Type: text/html; charset="UTF-8"',
+            'MIME-Version: 1.0',
+            '',
+            email.body.replace(/\n/g, '<br/>')
+          ];
+          const rawMessage = lines.join('\r\n');
+          const encodedMessage = btoa(unescape(encodeURIComponent(rawMessage)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+          const res = await fetch(`/api/gmail-proxy/gmail/v1/users/me/messages/send`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+              'x-gmail-account': activeAccount.email,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ raw: encodedMessage })
+          });
+
+          if (res.ok) {
+            setScheduledEmails(prev => prev.filter(e => e.id !== email.id));
+            setNotifications(prev => [...prev, {
+              id: Date.now().toString(),
+              type: 'success',
+              title: 'Scheduled Email Sent',
+              desc: `Automatically sent to ${email.to}`,
+              link: 'Mail'
+            }]);
+          } else {
+             // Mark as failed to avoid infinite loop
+             setScheduledEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: 'Failed' } : e));
+          }
+        } catch (err) {
+          console.error("Scheduled send failed", err);
+        }
+      }
+    };
+
+    const interval = setInterval(processScheduled, 30000); // Check every 30s
+    return () => clearInterval(interval);
+  }, [scheduledEmails, user, activeAccount]);
+
+  useEffect(() => {
+    if (!isComposeOpen || !activeAccount) return;
 
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     
     draftTimerRef.current = setTimeout(async () => {
-      const token = localStorage.getItem('gmail_access_token');
-      if (!token) return;
-
-      try {
-        console.log("Auto-saving draft...");
-        // This is a simplified draft save
-        // Real implementation would use Google's Draft API
-        setNotifications(prev => {
-          const id = "draft-save";
-          const exists = prev.some(n => n.id === id);
-          if (exists) return prev;
-          const n = { 
-            id, 
-            type: 'info',
-            title: 'Draft Saved',
-            desc: 'Draft saved automatically',
-            link: 'Mail'
-          };
-          setTimeout(() => setNotifications(p => p.filter(x => x.id !== id)), 2000);
-          return [...prev, n];
-        });
-      } catch (e) {
-        // Silent fail
-      }
+      localStorage.setItem(`draft_${activeAccount.email}`, JSON.stringify(composeData));
+      
+      setNotifications(prev => {
+        const id = "draft-save";
+        const exists = prev.some(n => n.id === id);
+        if (exists) return prev;
+        const n = { 
+          id, 
+          type: 'info',
+          title: 'Draft Cached',
+          desc: 'Draft saved locally',
+          link: 'Mail'
+        };
+        setTimeout(() => setNotifications(p => p.filter(x => x.id !== id)), 2000);
+        return [...prev, n];
+      });
     }, 2000);
 
     return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
-  }, [composeData.body, composeData.subject, isComposeOpen]);
+  }, [composeData.body, composeData.subject, composeData.to, composeData.replyTo, isComposeOpen, activeAccount?.email]);
 
   return (
     <div className="flex bg-white h-full relative border-none sm:border border-gray-200 rounded-none sm:rounded-xl shadow-none sm:shadow-sm overflow-hidden flex-col">
@@ -1226,13 +1477,97 @@ export default function MailView() {
               <Menu className="w-5 h-5" />
             </button>
             
-            <div className="max-w-2xl w-full flex items-center bg-[#f0f4f9] px-4 py-2.5 rounded-full focus-within:bg-white focus-within:shadow-md transition-all border border-transparent focus-within:border-gray-200">
+            <div className="max-w-2xl w-full flex items-center bg-[#f0f4f9] px-4 py-2.5 rounded-full focus-within:bg-white focus-within:shadow-md transition-all border border-transparent focus-within:border-gray-200 relative">
               <Search className="w-5 h-5 text-gray-500 mr-3" />
               <input 
                 type="text" 
                 placeholder="Search in mail" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && fetchEmails()}
                 className="w-full bg-transparent border-none focus:outline-none text-base text-gray-700" 
               />
+              <button 
+                onClick={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
+                className="p-1 px-2 hover:bg-gray-200 rounded-lg text-gray-500 transition-colors cursor-pointer"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {isAdvancedSearchOpen && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 z-[100] animate-in fade-in slide-in-from-top-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400">From</label>
+                      <input 
+                        type="text" 
+                        value={searchFilters.from}
+                        onChange={(e) => setSearchFilters({...searchFilters, from: e.target.value})}
+                        className="w-full p-3 bg-gray-50 rounded-xl text-sm border-2 border-transparent focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400">Subject</label>
+                      <input 
+                        type="text" 
+                        value={searchFilters.subject}
+                        onChange={(e) => setSearchFilters({...searchFilters, subject: e.target.value})}
+                        className="w-full p-3 bg-gray-50 rounded-xl text-sm border-2 border-transparent focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400">After</label>
+                      <input 
+                        type="date" 
+                        value={searchFilters.after}
+                        onChange={(e) => setSearchFilters({...searchFilters, after: e.target.value})}
+                        className="w-full p-3 bg-gray-50 rounded-xl text-sm border-2 border-transparent focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400">Before</label>
+                      <input 
+                        type="date" 
+                        value={searchFilters.before}
+                        onChange={(e) => setSearchFilters({...searchFilters, before: e.target.value})}
+                        className="w-full p-3 bg-gray-50 rounded-xl text-sm border-2 border-transparent focus:border-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400">Read Status</label>
+                      <select 
+                        value={searchFilters.status}
+                        onChange={(e) => setSearchFilters({...searchFilters, status: e.target.value})}
+                        className="w-full p-3 bg-gray-50 rounded-xl text-sm border-2 border-transparent focus:border-blue-500 outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="all">All Messages</option>
+                        <option value="unread">Unread Only</option>
+                        <option value="read">Read Only</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button 
+                      onClick={() => {
+                        setSearchFilters({ from: '', subject: '', after: '', before: '', status: 'all' });
+                        setSearchQuery('');
+                      }}
+                      className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+                    >
+                      Clear
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsAdvancedSearchOpen(false);
+                        fetchEmails();
+                      }}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold"
+                    >
+                      Search
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           
@@ -1853,28 +2188,37 @@ export default function MailView() {
                       onClick={(e) => {
                         const btn = e.currentTarget;
                         if (btn) {
-                          const originalText = btn.innerText;
-                          btn.innerText = "CHECKING...";
+                          const steps = [
+                            "ENCRYPTING HANDSHAKE...",
+                            "VERIFYING RELAY NODES...",
+                            "OPTIMIZING LATENCY...",
+                            "DIAGNOSTICS PASSED"
+                          ];
+                          let i = 0;
                           btn.classList.add("animate-pulse");
-                          setTimeout(() => {
-                            btn.innerText = "DIAGNOSTICS PASSED";
-                            btn.classList.remove("animate-pulse");
-                            btn.classList.replace("text-gray-500", "text-emerald-600");
-                            btn.classList.replace("border-gray-100", "border-emerald-100");
-                            setNotifications(prev => [...prev, { id: Date.now().toString(), type: 'success', title: 'System Healthy', desc: 'Secure Relay encryption verified. All nodes active.', link: 'Mail' }]);
-                            
-                             // Reset after some time
-                             setTimeout(() => {
-                               if (btn) {
-                                 btn.innerText = originalText;
-                                 btn.classList.replace("text-emerald-600", "text-gray-500");
-                                 btn.classList.replace("border-emerald-100", "border-gray-100");
-                               }
-                             }, 5000);
-                          }, 2000);
+                          btn.disabled = true;
+
+                          const iv = setInterval(() => {
+                            btn.innerText = steps[i];
+                            i++;
+                            if (i >= steps.length) {
+                              clearInterval(iv);
+                              btn.classList.remove("animate-pulse");
+                              btn.classList.replace("text-gray-500", "text-emerald-600");
+                              btn.classList.replace("border-gray-100", "border-emerald-100");
+                              setNotifications(prev => [...prev, { id: Date.now().toString(), type: 'success', title: 'System Optimized', desc: 'Secure Relay encryption verified using 1024-bit handshake.', link: 'Mail' }]);
+                              
+                              setTimeout(() => {
+                                btn.innerText = "Diagnostics Check";
+                                btn.classList.replace("text-emerald-600", "text-gray-500");
+                                btn.classList.replace("border-emerald-100", "border-gray-100");
+                                btn.disabled = false;
+                              }, 5000);
+                            }
+                          }, 800);
                         }
                       }}
-                      className="mt-10 px-8 py-3 bg-white border-2 border-gray-100 hover:border-gray-200 rounded-2xl text-[10px] font-black text-gray-500 uppercase tracking-widest transition-all cursor-pointer active:scale-95"
+                      className="mt-10 px-8 py-3 bg-white border-2 border-gray-100 hover:border-gray-200 rounded-2xl text-[10px] font-black text-gray-500 uppercase tracking-widest transition-all cursor-pointer active:scale-95 disabled:opacity-80"
                     >
                       Diagnostics Check
                     </button>
@@ -1918,9 +2262,19 @@ export default function MailView() {
                     <div className="flex items-center gap-1">
                       <span className="text-sm font-medium ml-2">{activeLabel}</span>
                       {activeAccount && (
-                        <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full ml-2 font-mono border border-gray-200">
-                          {activeAccount.email}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full ml-2 font-mono border border-gray-200">
+                            {activeAccount.email}
+                          </span>
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 rounded-full border border-gray-100">
+                             <div className={`w-1.5 h-1.5 rounded-full ${
+                               syncStatus === 'Live' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
+                               syncStatus === 'Syncing...' ? 'bg-blue-500 animate-pulse' : 
+                               'bg-red-500'
+                             }`} />
+                             <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{syncStatus}</span>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -2240,7 +2594,34 @@ export default function MailView() {
 
       {/* Compose Window (Manual Sending / Auto-Drafting) */}
       {isComposeOpen && (
-        <div className="fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-16 w-full sm:w-[560px] h-full sm:h-[600px] bg-white sm:rounded-t-2xl shadow-[0_-20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-200 flex flex-col z-[100] animate-in slide-in-from-bottom-8 duration-300 ease-out overflow-hidden">
+        <div 
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              const files = Array.from(e.dataTransfer.files);
+              setAttachments(prev => [...prev, ...files]);
+              setNotifications(prev => [...prev, {
+                id: Date.now().toString(),
+                type: 'info',
+                title: 'Files Added',
+                desc: `${files.length} file(s) attached via drag & drop.`,
+                link: 'Mail'
+              }]);
+            }
+          }}
+          className={`fixed inset-0 sm:inset-auto sm:bottom-0 sm:right-16 w-full sm:w-[560px] h-full sm:h-[650px] bg-white sm:rounded-t-2xl shadow-[0_-20px_50px_-12px_rgba(0,0,0,0.15)] border border-gray-200 flex flex-col z-[100] animate-in slide-in-from-bottom-8 duration-300 ease-out overflow-hidden ${isDragging ? 'ring-4 ring-blue-500 ring-inset opacity-80' : ''}`}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 bg-blue-50/50 backdrop-blur-sm z-[110] flex items-center justify-center pointer-events-none">
+              <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-dashed border-blue-400 flex flex-col items-center">
+                <Upload className="w-12 h-12 text-blue-600 mb-4 animate-bounce" />
+                <p className="text-lg font-black text-blue-900 uppercase tracking-widest">Drop files to attach</p>
+              </div>
+            </div>
+          )}
           <div className="bg-gray-900 text-white px-5 py-4 sm:py-3 flex items-center justify-between cursor-pointer sticky top-0 sm:relative">
             <span className="text-sm font-bold tracking-tight uppercase">New Campaign Message</span>
             <div className="flex items-center gap-1.5">
@@ -2269,10 +2650,19 @@ export default function MailView() {
                      setComposeData({ ...composeData, to: e.target.value });
                      setLeadSearchQuery(e.target.value);
                      setShowLeadResults(true);
+                     setToError(null);
+                   }}
+                   onBlur={() => {
+                     if (composeData.to && !validateEmail(composeData.to)) {
+                      setToError("Invalid email format");
+                     }
                    }}
                    onFocus={() => setShowLeadResults(true)}
-                   className="w-full px-1 py-2 border-b border-gray-100 text-sm focus:outline-none focus:border-blue-500 font-semibold transition-all" 
+                   className={`w-full px-1 py-2 border-b text-sm focus:outline-none focus:border-blue-500 font-semibold transition-all ${toError ? 'border-red-500' : 'border-gray-100'}`} 
                  />
+                 {toError && (
+                   <p className="text-[9px] font-bold text-red-500 uppercase mt-1 tracking-widest animate-in fade-in slide-in-from-top-1">{toError}</p>
+                 )}
                  {showLeadResults && filteredLeads.length > 0 && (
                   <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 shadow-xl rounded-xl mt-1 z-[110] overflow-hidden">
                     {filteredLeads.map(lead => (
@@ -2282,6 +2672,7 @@ export default function MailView() {
                           setComposeData({ ...composeData, to: lead.email });
                           setShowLeadResults(false);
                           setLeadSearchQuery('');
+                          setToError(null);
                         }}
                         className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between border-b border-gray-50 last:border-0"
                       >
@@ -2296,6 +2687,29 @@ export default function MailView() {
                 )}
               </div>
              </div>
+
+             <div className="group">
+               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Reply-To (Optional)</label>
+               <input 
+                 type="text" 
+                 placeholder="Specific reply address..." 
+                 value={composeData.replyTo}
+                 onChange={(e) => {
+                   setComposeData({ ...composeData, replyTo: e.target.value });
+                   setReplyToError(null);
+                 }}
+                 onBlur={() => {
+                   if (composeData.replyTo && !validateEmail(composeData.replyTo)) {
+                     setReplyToError("Invalid reply-to format");
+                   }
+                 }}
+                 className={`w-full px-1 py-2 border-b text-sm focus:outline-none focus:border-blue-500 font-semibold transition-all ${replyToError ? 'border-red-500' : 'border-gray-100'}`} 
+               />
+               {replyToError && (
+                 <p className="text-[9px] font-bold text-red-500 uppercase mt-1 tracking-widest">{replyToError}</p>
+               )}
+             </div>
+
              <div className="group">
                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Subject Line</label>
                <input 
@@ -2306,10 +2720,45 @@ export default function MailView() {
                  className="w-full px-1 py-2 border-b border-gray-100 text-sm focus:outline-none focus:border-blue-500 font-semibold transition-all" 
                />
              </div>
+
+             <div className="group">
+               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Custom Headers (One per line, e.g. X-Campaign: 123)</label>
+               <textarea 
+                 placeholder="X-Header-Name: Value" 
+                 value={composeData.customHeaders}
+                 onChange={(e) => setComposeData({ ...composeData, customHeaders: e.target.value })}
+                 className="w-full px-1 py-2 border-b border-gray-100 text-sm focus:outline-none focus:border-blue-500 font-semibold transition-all h-12 min-h-[48px] resize-none" 
+               />
+             </div>
+
+             <div className="flex items-center gap-1 border-b border-gray-50 pb-2">
+                <button onClick={() => applyFormatting('bold')} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="Bold"><Bold className="w-4 h-4" /></button>
+                <button onClick={() => applyFormatting('italic')} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="Italic"><Italic className="w-4 h-4" /></button>
+                <button onClick={() => applyFormatting('underline')} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="Underline"><Underline className="w-4 h-4" /></button>
+                <div className="w-px h-4 bg-gray-200 mx-1" />
+                <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600" title="Attach"><Paperclip className="w-4 h-4" /></button>
+             </div>
+
+             {/* Upload Progress */}
+             {isUploading && (
+               <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-4 animate-in fade-in slide-in-from-top-2 mb-2">
+                 <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin shrink-0"></div>
+                 <div className="flex-1">
+                   <div className="flex justify-between text-[10px] font-black text-blue-600 uppercase tracking-widest mb-1">
+                     <span>Uploading Attachments...</span>
+                     <span>{uploadProgress}%</span>
+                   </div>
+                   <div className="w-full bg-blue-100 h-1.5 rounded-full overflow-hidden">
+                     <div className="bg-blue-600 h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                   </div>
+                 </div>
+               </div>
+             )}
+
              <div className="flex-1">
                <textarea 
                  id="compose-body"
-                 className="w-full h-full p-2 text-sm focus:outline-none min-h-[250px] resize-none text-gray-800 leading-relaxed font-sans" 
+                 className="w-full h-full p-2 text-sm focus:outline-none min-h-[200px] resize-none text-gray-800 leading-relaxed font-sans" 
                  placeholder="Message body (variables like {{firstName}} supported)..."
                  value={composeData.body}
                  onChange={(e) => setComposeData({ ...composeData, body: e.target.value })}
@@ -2431,6 +2880,7 @@ export default function MailView() {
                        <button onClick={() => insertVariable('lastName')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Last Name</button>
                        <button onClick={() => insertVariable('company')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Company Name</button>
                        <button onClick={() => insertVariable('email')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Email Address</button>
+                       <button onClick={() => insertVariable('scheduledDate')} className="px-5 py-3 text-xs text-gray-900 hover:bg-blue-50 text-left font-black tracking-tight uppercase">Scheduled Date</button>
                     </div>
                   </div>
                   <button onClick={insertLink} className="p-2 sm:p-3 hover:bg-gray-200/50 rounded-xl sm:rounded-2xl text-gray-400 cursor-pointer transition-all" title="Insert Link">

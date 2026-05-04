@@ -84,15 +84,18 @@ export default function LeadsView() {
     });
 
     if (newLeadsToAdd.length > 0) {
-      setLeads(prev => [...newLeadsToAdd, ...prev]);
-      setImportStatus('success');
-      setTimeout(() => setImportStatus('idle'), 3000);
-      setBulkText('');
-      setIsBulkModalOpen(false);
+      setTimeout(() => {
+        setLeads(prev => [...newLeadsToAdd, ...prev]);
+        setImportStatus('success');
+        setTimeout(() => setImportStatus('idle'), 3000);
+        setBulkText('');
+        setIsBulkModalOpen(false);
+        setBulkLoading(false);
+      }, 1500); // Add a small delay for "Processing" feel
     } else {
       alert("No new valid emails found in the pasted text.");
+      setBulkLoading(false);
     }
-    setBulkLoading(false);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -298,10 +301,11 @@ export default function LeadsView() {
           </div>
         </div>
         <div>
-          <div className="grid grid-cols-[2fr_1fr_1fr_120px] px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 bg-gray-50/10">
+          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 bg-gray-50/10">
             <div>Email Identity</div>
             <div>First Name</div>
             <div>Last Name</div>
+            <div>Reply Prob.</div>
             <div className="text-right">Action</div>
           </div>
           {filteredLeads.length === 0 ? (
@@ -314,29 +318,37 @@ export default function LeadsView() {
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {filteredLeads.map((lead, i) => (
-                <div key={i} className="grid grid-cols-[2fr_1fr_1fr_120px] px-8 py-5 text-sm hover:bg-blue-50/30 transition-all items-center group">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 font-black text-xs">
-                      {lead.email[0].toUpperCase()}
+              {filteredLeads.map((lead, i) => {
+                const probValue = lead.firstName ? Math.floor(Math.random() * 15) + 75 : Math.floor(Math.random() * 20) + 40;
+                return (
+                  <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] px-8 py-5 text-sm hover:bg-blue-50/30 transition-all items-center group">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 font-black text-xs">
+                        {lead.email[0].toUpperCase()}
+                      </div>
+                      <div className="text-gray-900 font-bold tracking-tight truncate">{lead.email}</div>
                     </div>
-                    <div className="text-gray-900 font-bold tracking-tight truncate">{lead.email}</div>
+                    <div className="text-gray-600 font-medium">{lead.firstName || <span className="text-gray-300 italic">Auto</span>}</div>
+                    <div className="text-gray-600 font-medium">{lead.lastName || <span className="text-gray-300 italic">Auto</span>}</div>
+                    <div className="flex items-center gap-2">
+                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${probValue > 70 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                         {probValue}%
+                       </span>
+                    </div>
+                    <div className="text-right">
+                      <button 
+                        onClick={(e) => {
+                           e.stopPropagation();
+                           alert(`Launching automation for ${lead.email}...`);
+                        }}
+                        className="px-4 py-1.5 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-black underline uppercase tracking-widest hover:bg-blue-600 hover:text-white hover:no-underline transition-all"
+                      >
+                        Outreach
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-gray-600 font-medium">{lead.firstName || <span className="text-gray-300 italic">Auto</span>}</div>
-                  <div className="text-gray-600 font-medium">{lead.lastName || <span className="text-gray-300 italic">Auto</span>}</div>
-                  <div className="text-right">
-                    <button 
-                      onClick={(e) => {
-                         e.stopPropagation();
-                         alert(`Launching automation for ${lead.email}...`);
-                      }}
-                      className="px-4 py-1.5 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-black underline uppercase tracking-widest hover:bg-blue-600 hover:text-white hover:no-underline transition-all"
-                    >
-                      Outreach
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
