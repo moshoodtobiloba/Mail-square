@@ -1,15 +1,52 @@
 import { useState } from 'react';
-import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical } from 'lucide-react';
+import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical, File, Calendar, X } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 export default function CampaignsView() {
   const [activeStep, setActiveStep] = useState(1);
   const [steps, setSteps] = useLocalStorage('campaign_steps', [
-    { id: 1, name: 'Initial Outreach Mail', delay: 'Send immediately', subject: 'Quick question about {Company}', content: 'Hi {First Name},\n\nInterested in improving {Company}?' },
-    { id: 2, name: 'Follow-up Mail', delay: 'Wait 3 days if no reply', subject: 'Re: Quick question about {Company}', content: 'Hi {First Name},\n\nJust following up on my previous note. Any thoughts?' }
+    { 
+      id: 1, 
+      name: 'Initial Outreach Mail', 
+      delay: 'Send immediately', 
+      subject: 'Quick question about {Company}', 
+      content: 'Hi {First Name},\n\nInterested in improving {Company}?',
+      status: 'Scheduled',
+      schedule: {
+        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        times: ['09:00'],
+        recurring: true
+      },
+      analytics: { sent: 124, opened: 48, replied: 12, bounced: 2 }
+    },
+    { 
+      id: 2, 
+      name: 'Follow-up Mail', 
+      delay: 'Wait 3 days if no reply', 
+      subject: 'Re: Quick question about {Company}', 
+      content: 'Hi {First Name},\n\nJust following up on my previous note. Any thoughts?',
+      status: 'Scheduled',
+      schedule: {
+        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        times: ['10:00'],
+        recurring: false
+      },
+      analytics: { sent: 42, opened: 21, replied: 4, bounced: 0 }
+    }
+  ]);
+
+  const [templates, setTemplates] = useLocalStorage('email_templates', [
+    { id: '1', name: 'Cold Intro', subject: 'Connecting with {Company}', content: 'Hi {First Name},\n\nI saw what you are doing at {Company}...' },
+    { id: '2', name: 'Product Demo', subject: 'Demo for {Company}', content: 'Hi {First Name},\n\nWould you be open to a quick demo of our solution?' }
   ]);
   
-  const currentStep = steps.find(s => s.id === activeStep) || steps[0];
+  const rawStep = (steps.find((s: any) => s.id === activeStep) || steps[0] || {}) as any;
+  const currentStep: any = {
+    ...rawStep,
+    schedule: rawStep.schedule || { days: [], times: [], recurring: false },
+    analytics: rawStep.analytics || { sent: 0, opened: 0, replied: 0, bounced: 0 },
+    status: rawStep.status || 'Scheduled'
+  };
 
   const updateCurrentStep = (key: string, value: string) => {
     setSteps(steps.map(s => s.id === activeStep ? { ...s, [key]: value } : s));
@@ -55,9 +92,48 @@ export default function CampaignsView() {
 
   const variables = ['First Name', 'Last Name', 'Company', 'Country', 'Job Title'];
 
+  const saveAsTemplate = () => {
+    const name = prompt("Enter template name:", currentStep.name);
+    if (!name) return;
+    const newTemplate = {
+      id: Date.now().toString(),
+      name,
+      subject: currentStep.subject,
+      content: currentStep.content
+    };
+    setTemplates([...templates, newTemplate]);
+    alert("Template saved!");
+  };
+
+  const loadTemplate = (id: string) => {
+    const t = templates.find(temp => temp.id === id);
+    if (!t) return;
+    updateCurrentStep('subject', t.subject);
+    updateCurrentStep('content', t.content);
+  };
+
+  const updateSchedule = (key: string, value: any) => {
+    const newSchedule = { ...currentStep.schedule, [key]: value };
+    setSteps(steps.map(s => s.id === activeStep ? { ...s, schedule: newSchedule } : s));
+  };
+
   const addNewStep = () => {
-    const newId = steps.length + 1;
-    setSteps([...steps, { id: newId, name: `Step ${newId}`, delay: 'Wait X days', subject: '', content: '' }]);
+    const newId = Date.now();
+    const newStep = { 
+      id: newId, 
+      name: `Step ${steps.length + 1}`, 
+      delay: 'Wait X days', 
+      subject: '', 
+      content: '',
+      status: 'Scheduled',
+      schedule: {
+        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        times: ['09:00'],
+        recurring: false
+      },
+      analytics: { sent: 0, opened: 0, replied: 0, bounced: 0 }
+    };
+    setSteps([...steps, newStep]);
     setActiveStep(newId);
   };
 
@@ -93,7 +169,29 @@ export default function CampaignsView() {
                      <GripVertical className={`w-4 h-4 ${activeStep === step.id ? 'text-blue-300' : 'text-gray-300'}`} />
                   </div>
                   <p className={`text-sm font-medium ${activeStep === step.id ? 'text-blue-900' : 'text-gray-900'}`}>{step.name}</p>
-                  <p className={`text-xs mt-1 ${activeStep === step.id ? 'text-blue-600' : 'text-gray-500'}`}>{step.delay}</p>
+                  
+                  {/* Step Analytics */}
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                     <div className="bg-gray-50/50 p-1.5 rounded border border-gray-100">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Sent</p>
+                        <p className="text-xs font-black text-gray-700">{step.analytics?.sent || 0}</p>
+                     </div>
+                     <div className="bg-gray-50/50 p-1.5 rounded border border-gray-100">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Opened</p>
+                        <p className="text-xs font-black text-blue-600">{step.analytics?.opened || 0}</p>
+                     </div>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className={`text-[10px] ${activeStep === step.id ? 'text-blue-600' : 'text-gray-500'}`}>{step.delay}</p>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter ${
+                      step.status === 'Sending' ? 'bg-blue-100 text-blue-700' :
+                      step.status === 'Paused' ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {step.status}
+                    </span>
+                  </div>
                </div>
              ))}
              
@@ -106,17 +204,135 @@ export default function CampaignsView() {
 
         {/* Builder Area */}
         <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col p-4 sm:p-6 overflow-y-auto">
-           <div className="mb-6 flex flex-col sm:flex-row justify-between items-start gap-4">
+            <div className="mb-6 flex flex-col sm:flex-row justify-between items-start gap-4">
              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Configure Outreach Frame</h3>
+                <div className="flex items-center gap-3 mb-1">
+                  <h3 className="text-lg font-semibold text-gray-900">Configure Outreach Frame</h3>
+                  <select 
+                    value={currentStep.status}
+                    onChange={(e) => updateCurrentStep('status', e.target.value)}
+                    className="text-[10px] font-black uppercase tracking-widest bg-gray-50 border-2 border-gray-200 px-3 py-1 rounded-full outline-none focus:border-blue-500 transition-all cursor-pointer"
+                  >
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="Sending">Sending</option>
+                    <option value="Paused">Paused</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Failed">Failed</option>
+                  </select>
+                </div>
                 <p className="text-sm text-gray-500">Edit the email behavior and variables for {currentStep.name}</p>
              </div>
-             <button className="w-full sm:w-auto px-5 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer">
-               <Play className="w-4 h-4" /> Save & Launch Automator
-             </button>
+             <div className="flex gap-2 w-full sm:w-auto">
+               <button 
+                 onClick={saveAsTemplate}
+                 className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-all cursor-pointer flex items-center justify-center gap-2"
+               >
+                 <File className="w-4 h-4" /> Save Template
+               </button>
+               <button className="flex-1 sm:flex-none px-5 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer">
+                 <Play className="w-4 h-4" /> Save & Launch
+               </button>
+             </div>
            </div>
            
            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Step Name</label>
+                  <input 
+                    type="text" 
+                    value={currentStep.name}
+                    onChange={e => updateCurrentStep('name', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Template Library</label>
+                  <select 
+                    onChange={e => loadTemplate(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Select a template...</option>
+                    {templates.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-4 bg-[#f8fbff] border-2 border-blue-50 rounded-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-widest text-blue-600 flex items-center gap-2">
+                    <Calendar className="w-4 h-4" /> Advanced Scheduling
+                  </h4>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={currentStep.schedule.recurring}
+                      onChange={e => updateSchedule('recurring', e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Recurring Weekly</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Delivery Days</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                        const isSelected = currentStep.schedule.days.includes(day);
+                        return (
+                          <button 
+                            key={day}
+                            onClick={() => {
+                              const next = isSelected 
+                                ? currentStep.schedule.days.filter((d: string) => d !== day)
+                                : [...currentStep.schedule.days, day];
+                              updateSchedule('days', next);
+                            }}
+                            className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${
+                              isSelected ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-400 hover:border-blue-200'
+                            }`}
+                          >
+                            {day.slice(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dispatch Windows</p>
+                      <button 
+                        onClick={() => {
+                          const time = prompt("Enter time (HH:MM):", "09:00");
+                          if (time) updateSchedule('times', [...currentStep.schedule.times, time]);
+                        }}
+                        className="text-[10px] font-black text-blue-600 uppercase hover:underline"
+                      >
+                        + Add Time
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {currentStep.schedule.times.map((time: string, idx: number) => (
+                        <div key={idx} className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg text-[10px] font-bold text-gray-700 shadow-sm">
+                          {time}
+                          <button 
+                            onClick={() => updateSchedule('times', currentStep.schedule.times.filter((_: any, i: number) => i !== idx))}
+                            className="text-gray-400 hover:text-red-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                <label className="block text-sm font-medium text-gray-700 mb-1">Email Subject Line</label>
                <input 

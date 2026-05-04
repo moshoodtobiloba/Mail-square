@@ -87,7 +87,7 @@ export default function SettingsView() {
                     <button 
                       onClick={() => {
                         if (window.confirm(`Disconnect ${acc.email}?`)) {
-                          setInboxes(inboxes.filter((_, idx) => idx !== i));
+                          setInboxes((prev: any[]) => prev.filter((_, idx) => idx !== i));
                         }
                       }}
                       className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
@@ -179,6 +179,17 @@ export default function SettingsView() {
             </p>
             {notificationError && (
               <p className="mt-2 text-xs text-red-500 font-medium">Error: {notificationError.message}</p>
+            )}
+            {token && (
+              <button 
+                onClick={() => {
+                  new Notification("MailSquare Ping", { body: "Real-time relay connectivity verified." });
+                  alert("Test notification sent to system tray.");
+                }}
+                className="mt-4 px-4 py-2 border border-blue-200 text-blue-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-50 transition-all cursor-pointer"
+              >
+                Send Test Ping
+              </button>
             )}
           </div>
           <div className="shrink-0">

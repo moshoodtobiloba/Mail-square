@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { LayoutDashboard, Users, Zap, Settings, Mail as MailIcon, Bell, Trash2 } from 'lucide-react';
-import { Routes, Route, useLocation, Link } from 'react-router-dom';
+import { Routes, Route, useLocation, Link, Navigate, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import DashboardView from './components/views/DashboardView.tsx';
 import LeadsView from './components/views/LeadsView.tsx';
@@ -16,19 +16,45 @@ import { SplashScreen } from './components/ui/SplashScreen.tsx';
 import { Logo, LogoText } from './components/ui/Logo.tsx';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('Mail');
   const { user, loading, logOut } = useAuth();
   const [notifications, setNotifications] = useLocalStorage('app_notifications', [] as any[]);
   const [showSplash, setShowSplash] = useState(true);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Map routes to tab IDs for UI highlighting
+  const activeTab = useMemo(() => {
+    const path = location.pathname.split('/')[1];
+    switch (path) {
+      case 'home': return 'Home';
+      case 'intelligence': return 'Analytics';
+      case 'mail': return 'Mail';
+      case 'sequences': return 'Campaigns';
+      case 'settings': return 'Settings';
+      default: return 'Mail';
+    }
+  }, [location.pathname]);
+
+  // Persist last visited route to avoid resetting to mail on reload
+  useEffect(() => {
+    if (user && location.pathname !== '/' && !location.pathname.includes('/privacy') && !location.pathname.includes('/terms')) {
+      localStorage.setItem('last_visited_path', location.pathname);
+    }
+  }, [location.pathname, user]);
 
   useEffect(() => {
     // Show splash for 2.5 seconds on first load
     const timer = setTimeout(() => {
       setShowSplash(false);
+      
+      // Auto-restore last path if on base login
+      const lastPath = localStorage.getItem('last_visited_path');
+      if (user && (location.pathname === '/' || location.pathname === '/mail') && lastPath && lastPath !== location.pathname) {
+        navigate(lastPath);
+      }
     }, 2500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [user, navigate, location.pathname]);
 
   const [isServerHealthy, setIsServerHealthy] = useState<boolean | null>(null);
 
@@ -63,18 +89,25 @@ export default function App() {
 
   useEffect(() => {
     const handleNavigate = (e: any) => {
-      if (e.detail) setActiveTab(e.detail);
+      if (e.detail) {
+        const id = e.detail;
+        if (id === 'Home') navigate('/home');
+        else if (id === 'Analytics') navigate('/intelligence');
+        else if (id === 'Mail') navigate('/mail');
+        else if (id === 'Campaigns') navigate('/sequences');
+        else if (id === 'Settings') navigate('/settings');
+      }
     };
     window.addEventListener('navigate', handleNavigate);
     return () => window.removeEventListener('navigate', handleNavigate);
-  }, []);
+  }, [navigate]);
 
   const tabs = [
-    { id: 'Home', icon: LayoutDashboard, label: 'Home' },
-    { id: 'Analytics', icon: Zap, label: 'Intelligence' }, // Renamed for better branding
-    { id: 'Mail', icon: MailIcon, label: 'Inbox' },
-    { id: 'Campaigns', icon: Zap, label: 'Sequences' },
-    { id: 'Settings', icon: Settings, label: 'Settings' },
+    { id: 'Home', icon: LayoutDashboard, label: 'Home', path: '/home' },
+    { id: 'Analytics', icon: Zap, label: 'Intelligence', path: '/intelligence' },
+    { id: 'Mail', icon: MailIcon, label: 'Inbox', path: '/mail' },
+    { id: 'Campaigns', icon: Zap, label: 'Sequences', path: '/sequences' },
+    { id: 'Settings', icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
   const renderView = () => {
@@ -102,7 +135,8 @@ export default function App() {
     <Routes>
       <Route path="/privacy" element={<PrivacyPolicy />} />
       <Route path="/terms" element={<TermsOfService />} />
-      <Route path="*" element={
+      <Route path="/" element={!user ? <LandingView /> : <Navigate to="/mail" replace />} />
+      <Route path="/*" element={
         !user ? (
           <LandingView />
         ) : (
@@ -120,9 +154,9 @@ export default function App() {
                     const Icon = tab.icon;
                     const isActive = activeTab === tab.id;
                     return (
-                      <button
+                      <Link
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
+                        to={tab.path}
                         className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all group ${
                           isActive 
                             ? 'bg-blue-50 text-blue-700 font-bold' 
@@ -132,7 +166,7 @@ export default function App() {
                         <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-2'}`} />
                         <span className="text-sm tracking-tight">{tab.label}</span>
                         {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />}
-                      </button>
+                      </Link>
                     )
                   })}
                 </nav>
@@ -150,15 +184,19 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-3 px-2">
-                   <div tabIndex={0} className="w-10 h-10 rounded-xl bg-gray-900 text-white font-bold flex items-center justify-center text-sm shadow-lg cursor-pointer hover:ring-4 hover:ring-blue-50 group relative outline-none transition-all">
-                      {user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}
+                   <div tabIndex={0} className="w-10 h-10 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-sm shadow-xl cursor-pointer hover:ring-4 hover:ring-blue-50 group relative outline-none transition-all overflow-hidden">
+                      {user.photoURL ? (
+                        <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
+                      )}
                       
                       <div className="hidden group-focus:block absolute left-0 bottom-full mb-3 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50 cursor-default animate-in slide-in-from-bottom-2 duration-300">
                          <div className="px-4 py-3 border-b border-gray-50 mb-1 pointer-events-none">
                             <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
                             <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
                          </div>
-                         <button onClick={() => setActiveTab('Settings')} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer font-medium">
+                         <button onClick={() => navigate('/settings')} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer font-medium">
                             Account Settings
                          </button>
                          <button 
@@ -211,8 +249,12 @@ export default function App() {
                     </button>
                     
                     {/* Mobile Profile Trigger */}
-                    <div tabIndex={0} className="lg:hidden w-8 h-8 rounded-xl bg-gray-900 text-white font-bold flex items-center justify-center text-xs shadow-lg cursor-pointer group relative outline-none">
-                      {user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}
+                    <div tabIndex={0} className="lg:hidden w-8 h-8 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-xs shadow-lg cursor-pointer group relative outline-none overflow-hidden">
+                      {user.photoURL ? (
+                        <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
+                      )}
                       <div className="hidden group-focus:block absolute right-0 top-full mt-2 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50">
                          <div className="px-4 py-3 border-b border-gray-50 mb-1">
                             <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
@@ -234,7 +276,14 @@ export default function App() {
               <div className="flex-1 overflow-y-auto bg-white sm:bg-[#fcfdfe]">
                 <div className="max-w-[1440px] mx-auto p-4 sm:p-8 min-h-full flex flex-col">
                   <div className="flex-1 pb-32 lg:pb-12">
-                    {renderView()}
+                    <Routes>
+                      <Route path="/home" element={<DashboardView />} />
+                      <Route path="/intelligence" element={<LeadsView />} />
+                      <Route path="/mail" element={<MailView />} />
+                      <Route path="/sequences" element={<CampaignsView />} />
+                      <Route path="/settings" element={<SettingsView />} />
+                      <Route path="*" element={<Navigate to="/mail" replace />} />
+                    </Routes>
                   </div>
                   
                   {/* App Footer In-View */}
@@ -262,9 +311,9 @@ export default function App() {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
                   return (
-                    <button
+                    <Link
                       key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
+                      to={tab.path}
                       className={`flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-2xl transition-all duration-300 ${
                         isActive 
                           ? 'bg-blue-600 text-white scale-110 shadow-lg' 
@@ -273,7 +322,7 @@ export default function App() {
                     >
                       <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-2'}`} />
                       <span className="text-[8px] font-black uppercase tracking-widest">{tab.id === 'Analytics' ? 'Lead' : tab.id}</span>
-                    </button>
+                    </Link>
                   )
                 })}
               </nav>
@@ -307,7 +356,11 @@ export default function App() {
                              </div>
                            ) : (
                              notifications.map(n => (
-                               <div key={n.id} className="flex items-start gap-4 p-5 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => { setActiveTab(n.link); setIsNotifOpen(false); }}>
+                               <div key={n.id} className="flex items-start gap-4 p-5 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => { 
+                                  const pathMap: Record<string, string> = { 'Mail': '/mail', 'Home': '/home', 'Analytics': '/intelligence', 'Campaigns': '/sequences', 'Settings': '/settings' };
+                                  navigate(pathMap[n.link] || '/mail'); 
+                                  setIsNotifOpen(false); 
+                                }}>
                                  <div className={`w-3 h-3 mt-1 rounded-full shrink-0 ${n.type === 'alert' ? 'bg-amber-400' : 'bg-blue-500'} shadow-sm shadow-current`}></div>
                                  <div className="flex-1">
                                    <p className="text-sm font-black text-gray-900 leading-tight uppercase tracking-tight">{n.title}</p>

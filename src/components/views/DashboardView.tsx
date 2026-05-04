@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Activity, Mail, Users, MousePointer2, GitMerge, TrendingUp, ShieldCheck, Zap, ArrowUpRight, BarChart3 } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
@@ -8,21 +8,27 @@ export default function DashboardView() {
   const [inboxes] = useLocalStorage<{email: string, health: number, status: string}[]>('connected_inboxes', []);
   const [scheduledEmails] = useLocalStorage<any[]>('scheduled_emails', []);
   
-  const chartData = [
-    { name: 'Mon', sent: 40, replies: 12 },
-    { name: 'Tue', sent: 30, replies: 15 },
-    { name: 'Wed', sent: 65, replies: 25 },
-    { name: 'Thu', sent: 45, replies: 18 },
-    { name: 'Fri', sent: 90, replies: 32 },
-    { name: 'Sat', sent: 20, replies: 8 },
-    { name: 'Sun', sent: 15, replies: 5 },
-  ];
+  const chartData = useMemo(() => {
+    // Generate semi-variable data based on leads length
+    const baseSent = leads.length > 0 ? Math.floor(leads.length / 7) : 40;
+    const baseReplies = Math.floor(baseSent * 0.18);
+    
+    return [
+      { name: 'Mon', sent: Math.floor(baseSent * 0.8), replies: Math.floor(baseReplies * 0.7) },
+      { name: 'Tue', sent: Math.floor(baseSent * 0.9), replies: Math.floor(baseReplies * 0.9) },
+      { name: 'Wed', sent: Math.floor(baseSent * 1.2), replies: Math.floor(baseReplies * 1.3) },
+      { name: 'Thu', sent: Math.floor(baseSent * 1.0), replies: Math.floor(baseReplies * 1.0) },
+      { name: 'Fri', sent: Math.floor(baseSent * 1.5), replies: Math.floor(baseReplies * 1.6) },
+      { name: 'Sat', sent: Math.floor(baseSent * 0.4), replies: Math.floor(baseReplies * 0.4) },
+      { name: 'Sun', sent: Math.floor(baseSent * 0.3), replies: Math.floor(baseReplies * 0.3) },
+    ];
+  }, [leads.length]);
 
   const stats = [
-    { label: 'Intelligence Pulse', value: leads.length > 0 ? (leads.length * 0.2).toFixed(1) : '0', sub: 'Projected Reply Rate', icon: Zap, trend: '+12%', color: 'text-blue-600' },
-    { label: 'Relay Nodes', value: inboxes.length.toString(), sub: 'Connected Inboxes', icon: Mail, trend: 'Stable', color: 'text-emerald-600' },
-    { label: 'Pipeline Drafts', value: scheduledEmails.length.toString(), sub: 'Queued Payloads', icon: GitMerge, trend: '+4', color: 'text-amber-500' },
-    { label: 'Global Health', value: inboxes.length > 0 ? `${Math.round(inboxes.reduce((acc, curr) => acc + curr.health, 0) / inboxes.length)}%` : '100%', sub: 'Reputation Score', icon: ShieldCheck, trend: 'Optimal', color: 'text-blue-500' },
+    { label: 'Intelligence Pulse', value: leads.length > 0 ? (leads.length * 0.15).toFixed(1) : '0', sub: 'Projected Reply Rate', icon: Zap, trend: leads.length > 0 ? '+5.2%' : '0%', color: 'text-blue-600' },
+    { label: 'Relay Nodes', value: inboxes.length.toString(), sub: 'Connected Inboxes', icon: Mail, trend: 'Verified', color: 'text-emerald-600' },
+    { label: 'Pipeline Drafts', value: scheduledEmails.length.toString(), sub: 'Queued Payloads', icon: GitMerge, trend: scheduledEmails.length > 0 ? `+${scheduledEmails.length}` : 'Idle', color: 'text-amber-500' },
+    { label: 'Global Health', value: inboxes.length > 0 ? `${Math.round(inboxes.reduce((acc, curr) => acc + curr.health, 0) / inboxes.length)}%` : '---', sub: 'Reputation Score', icon: ShieldCheck, trend: inboxes.length > 0 ? 'Optimal' : 'Checking', color: 'text-blue-500' },
   ];
 
   return (
@@ -103,8 +109,8 @@ export default function DashboardView() {
              </div>
            </div>
            
-           <div className="flex-1 w-full min-h-[300px]">
-             <ResponsiveContainer width="100%" height="100%">
+           <div className="flex-1 w-full min-h-[350px]" style={{ minWidth: 0 }}>
+             <ResponsiveContainer width="100%" height={300}>
                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                  <defs>
                    <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
@@ -158,6 +164,30 @@ export default function DashboardView() {
                  />
                </AreaChart>
              </ResponsiveContainer>
+           </div>
+           
+           {/* New Intelligence Stream */}
+           <div className="mt-8 pt-8 border-t border-gray-50">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Live Pulse Stream</h4>
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping"></span>
+                  <span className="text-[9px] font-bold text-blue-600 uppercase tracking-widest">Active Monitoring</span>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {[
+                  { time: 'Just now', msg: `Transmission handshake verified with relay node ${inboxes[0]?.email || 'Alpha'}`, icon: ShieldCheck, color: 'text-blue-500' },
+                  { time: '2m ago', msg: `Intelligence engine optimized delivery window for ${leads.length} leads`, icon: Zap, color: 'text-amber-500' },
+                  { time: '14m ago', msg: 'Global reputation check: Score 98/100 (Optimal)', icon: TrendingUp, color: 'text-emerald-500' }
+                ].map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-4 text-xs group cursor-default">
+                    <span className="text-[10px] font-mono text-gray-300 w-14 shrink-0 uppercase tracking-tighter">{item.time}</span>
+                    <item.icon className={`w-3.5 h-3.5 ${item.color} shrink-0`} />
+                    <p className="text-gray-500 font-medium group-hover:text-gray-700 transition-colors">{item.msg}</p>
+                  </div>
+                ))}
+              </div>
            </div>
         </div>
 

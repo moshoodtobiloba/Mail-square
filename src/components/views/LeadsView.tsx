@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { Upload, Trash2, Search, UserPlus, Users, AlertCircle } from 'lucide-react';
+import { Upload, Trash2, Search, UserPlus, Users, AlertCircle, Clipboard, X, CheckCircle2 } from 'lucide-react';
 import { parseEmailNames } from '../../utils/parser';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import Papa from 'papaparse';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function LeadsView() {
   const [leads, setLeads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
   const [newLead, setNewLead] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const handleAdd = () => {
     const trimmed = newLead.trim();
@@ -24,6 +28,72 @@ export default function LeadsView() {
     setLeads([{ email: trimmed, firstName, lastName }, ...leads]);
     setNewLead('');
   }
+
+  const handleBulkAdd = () => {
+    if (!bulkText.trim()) return;
+    setBulkLoading(true);
+    
+    // Split by lines first
+    const lines = bulkText.split(/\n/);
+    const newLeadsToAdd: any[] = [];
+    const existingEmails = new Set(leads.map(l => l.email.toLowerCase()));
+
+    lines.forEach(line => {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) return;
+
+      // Try to find email in line
+      // Simple regex for email detection
+      const emailMatch = trimmedLine.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+      if (emailMatch) {
+        const email = emailMatch[0].toLowerCase();
+        if (!existingEmails.has(email)) {
+          // Check if line has names (e.g., "John Doe john@example.com" or "john@example.com, John, Doe")
+          let firstName = '';
+          let lastName = '';
+          
+          // Basic split by common delimiters
+          const parts = trimmedLine.split(/[,;\t|]/).map(p => p.trim()).filter(p => p && !p.includes('@'));
+          
+          if (parts.length >= 2) {
+            firstName = parts[0];
+            lastName = parts[1];
+          } else if (parts.length === 1) {
+            firstName = parts[0];
+          } else {
+            // Try to extract from before/after email in line if space separated
+            const textWithoutEmail = trimmedLine.replace(emailMatch[0], '').trim();
+            const spaceParts = textWithoutEmail.split(/\s+/).filter(p => p);
+            if (spaceParts.length >= 2) {
+              firstName = spaceParts[0];
+              lastName = spaceParts[1];
+            } else if (spaceParts.length === 1) {
+              firstName = spaceParts[0];
+            }
+          }
+
+          const parsedNames = parseEmailNames(email);
+          newLeadsToAdd.push({
+            email: email,
+            firstName: firstName || parsedNames.firstName,
+            lastName: lastName || parsedNames.lastName
+          });
+          existingEmails.add(email);
+        }
+      }
+    });
+
+    if (newLeadsToAdd.length > 0) {
+      setLeads(prev => [...newLeadsToAdd, ...prev]);
+      setImportStatus('success');
+      setTimeout(() => setImportStatus('idle'), 3000);
+      setBulkText('');
+      setIsBulkModalOpen(false);
+    } else {
+      alert("No new valid emails found in the pasted text.");
+    }
+    setBulkLoading(false);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -71,10 +141,11 @@ export default function LeadsView() {
     l.lastName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const [showWipeConfirm, setShowWipeConfirm] = useState(false);
+
   const clearLeads = () => {
-    if (confirm("Are you sure you want to wipe your entire lead database?")) {
-      setLeads([]);
-    }
+    setLeads([]);
+    setShowWipeConfirm(false);
   };
 
   return (
@@ -86,10 +157,30 @@ export default function LeadsView() {
         </div>
         <div className="flex gap-2">
           {leads.length > 0 && (
-            <button onClick={clearLeads} className="px-5 py-2 border-2 border-red-100 text-red-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-red-50 flex items-center gap-2 transition-all cursor-pointer active:scale-95">
-              <Trash2 className="w-4 h-4" /> Wipe Database
-            </button>
+            <div className="relative">
+              {showWipeConfirm ? (
+                <div className="flex items-center gap-2 animate-in zoom-in-95">
+                  <button onClick={clearLeads} className="px-4 py-2 bg-red-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg active:scale-95">
+                    Confirm Wipe
+                  </button>
+                  <button onClick={() => setShowWipeConfirm(false)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-2xl text-[10px] font-black uppercase tracking-widest">
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setShowWipeConfirm(true)} className="px-5 py-2 border-2 border-red-100 text-red-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-red-50 flex items-center gap-2 transition-all cursor-pointer active:scale-95">
+                  <Trash2 className="w-4 h-4" /> Wipe Database
+                </button>
+              )}
+            </div>
           )}
+
+          <button 
+            onClick={() => setIsBulkModalOpen(true)}
+            className="px-5 py-2 bg-blue-50 text-blue-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-blue-100 flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+          >
+            <Clipboard className="w-4 h-4" /> Bulk Paste
+          </button>
           
           <div className="relative">
             <input 
@@ -104,6 +195,81 @@ export default function LeadsView() {
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {isBulkModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsBulkModalOpen(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-gray-100 flex items-center justify-between bg-blue-50/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
+                    <Clipboard className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-900 tracking-tight">Bulk Identity Import</h3>
+                    <p className="text-sm text-gray-500 font-medium">Paste emails or formatted text to sync with database.</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsBulkModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <X className="w-6 h-6 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="bg-amber-50 border-2 border-amber-100 p-4 rounded-2xl flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 font-medium leading-relaxed">
+                    We'll extract emails and attempt to find names automatically. Supports: <br/>
+                    <code className="bg-white/50 px-1 rounded font-bold">email@example.com</code>, <br/>
+                    <code className="bg-white/50 px-1 rounded font-bold">John Doe john@email.com</code>, <br/>
+                    <code className="bg-white/50 px-1 rounded font-bold">email@email.com, John, Doe</code>
+                  </p>
+                </div>
+
+                <textarea 
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  placeholder="Paste your list here..."
+                  className="w-full h-80 p-6 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-3xl text-sm font-medium outline-none transition-all resize-none shadow-inner"
+                />
+              </div>
+
+              <div className="p-8 bg-gray-50/50 border-t border-gray-100 flex justify-end gap-3">
+                <button 
+                  onClick={() => setIsBulkModalOpen(false)}
+                  className="px-8 py-3 text-sm font-black uppercase tracking-widest text-gray-500 hover:text-gray-700"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={bulkLoading || !bulkText.trim()}
+                  onClick={handleBulkAdd}
+                  className="px-10 py-3 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {bulkLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  Process {bulkText.split('\n').filter(l => l.trim()).length} Lines
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <div className="bg-white border-2 border-gray-100 rounded-[2.5rem] overflow-hidden shadow-sm">
         <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row gap-6 justify-between bg-gray-50/30">
