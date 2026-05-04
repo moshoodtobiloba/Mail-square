@@ -462,17 +462,20 @@ export default function MailView() {
               };
               setNotifications(prev => [...prev, newNotif]);
 
-              // Check for Unsubscribe keywords
+              // Check for Unsubscribe keywords and headers
               const senderFull = detail.payload.headers.find((h: any) => h.name === 'From')?.value || '';
               const senderEmail = senderFull.includes('<') ? senderFull.split('<')[1].split('>')[0] : senderFull;
               const snippetLower = (detail.snippet || '').toLowerCase();
               const subjectLower = subject.toLowerCase();
+              const hasUnsubscribeHeader = detail.payload.headers.some((h: any) => h.name.toLowerCase() === 'list-unsubscribe');
 
-              if (snippetLower.includes('unsubscribe') || subjectLower.includes('unsubscribe') || snippetLower.includes('opt out') || subjectLower.includes('opt out')) {
+              if (snippetLower.includes('unsubscribe') || subjectLower.includes('unsubscribe') || 
+                  snippetLower.includes('opt out') || subjectLower.includes('opt out') || 
+                  hasUnsubscribeHeader) {
                 // Flag lead as unsubscribed
                 const savedLeads = JSON.parse(localStorage.getItem('lead_database') || '[]');
                 const leadIndex = savedLeads.findIndex((l: any) => l.email.toLowerCase() === senderEmail.toLowerCase());
-                if (leadIndex >= 0) {
+                if (leadIndex >= 0 && !savedLeads[leadIndex].unsubscribed) {
                   savedLeads[leadIndex].unsubscribed = true;
                   localStorage.setItem('lead_database', JSON.stringify(savedLeads));
                   setNotifications(prev => [...prev, {
@@ -567,13 +570,14 @@ export default function MailView() {
       
       let query = `category:primary${CATEGORY_EXCLUSIONS}`;
       if (searchQuery) {
+        // Support subject search specifically if prefixed with sub: or just search normally
         query = searchQuery;
       } else if (searchFilters.from || searchFilters.subject || searchFilters.after || searchFilters.before || searchFilters.status !== 'all') {
         let filters = [];
         if (searchFilters.from) filters.push(`from:${searchFilters.from}`);
         if (searchFilters.subject) filters.push(`subject:${searchFilters.subject}`);
-        if (searchFilters.after) filters.push(`after:${searchFilters.after}`);
-        if (searchFilters.before) filters.push(`before:${searchFilters.before}`);
+        if (searchFilters.after) filters.push(`after:${searchFilters.after.replace(/-/g, '/')}`);
+        if (searchFilters.before) filters.push(`before:${searchFilters.before.replace(/-/g, '/')}`);
         if (searchFilters.status === 'read') filters.push('is:read');
         if (searchFilters.status === 'unread') filters.push('is:unread');
         query = filters.join(' ');
@@ -617,6 +621,15 @@ export default function MailView() {
         if (res.status === 401) {
           setApiError('SESSION_EXPIRED');
           return;
+        }
+        if (res.status === 403) {
+          // Check for Gmail API disabled
+          const errorData = await res.json().catch(() => ({}));
+          const msg = errorData?.error?.message || "";
+          if (msg.includes("Gmail API has not been used") || msg.includes("disabled")) {
+            setApiError('API_DISABLED');
+            return;
+          }
         }
         
         let errorMsg = `Failed to fetch messages (${res.status}).`;
@@ -668,6 +681,20 @@ export default function MailView() {
                 const timeString = dateObj.toLocaleDateString() === new Date().toLocaleDateString() 
                   ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : dateObj.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+                // Unsubscribe detection in fetchEmails
+                const unsubscribeHeader = headers.find((h: any) => h.name.toLowerCase() === 'list-unsubscribe');
+                const snippetLow = (detailData.snippet || '').toLowerCase();
+                const subjectLow = subject.toLowerCase();
+                if (unsubscribeHeader || snippetLow.includes('unsubscribe') || subjectLow.includes('unsubscribe')) {
+                  const sEmails = senderRaw.includes('<') ? senderRaw.split('<')[1].split('>')[0] : senderRaw;
+                  const sLeads = JSON.parse(localStorage.getItem('lead_database') || '[]');
+                  const lIdx = sLeads.findIndex((l: any) => l.email.toLowerCase() === sEmails.toLowerCase());
+                  if (lIdx >= 0 && !sLeads[lIdx].unsubscribed) {
+                    sLeads[lIdx].unsubscribed = true;
+                    localStorage.setItem('lead_database', JSON.stringify(sLeads));
+                  }
+                }
 
                 // Enhanced Body Extraction (Base64 Decode)
                 const rawBody = getBodyFromPayload(detailData.payload);
@@ -823,9 +850,18 @@ export default function MailView() {
 
     if (!validateEmail(composeData.to)) {
       setToError("Please enter a valid email address.");
+      const toInput = document.querySelector('input[placeholder="Search leads or enter email..."]') as HTMLInputElement;
+      toInput?.focus();
       return;
     } else {
       setToError(null);
+    }
+
+    if (composeData.replyTo && !validateEmail(composeData.replyTo)) {
+      setReplyToError("Please enter a valid reply-to address.");
+      return;
+    } else {
+      setReplyToError(null);
     }
 
     // Handle variable injection if recipient is in leads
@@ -1190,6 +1226,8 @@ export default function MailView() {
   };
 
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [quickReplyText, setQuickReplyText] = useState('');
+  const [isQuickReplyOpen, setIsQuickReplyOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeEmailData = selectedEmail;
@@ -2547,6 +2585,12 @@ export default function MailView() {
                   >
                     <CornerUpRight className="w-4 h-4" /> Forward
                   </button>
+                  <button 
+                    onClick={() => setIsQuickReplyOpen(!isQuickReplyOpen)}
+                    className={`px-5 py-2.5 rounded-full text-sm font-medium flex items-center gap-2 cursor-pointer shadow-sm transition-all ${isQuickReplyOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <Zap className="w-4 h-4" /> Quick Reply
+                  </button>
                   <div className="relative group/emoji">
                     <button 
                       onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -2573,6 +2617,61 @@ export default function MailView() {
                     )}
                   </div>
                 </div>
+
+                {/* Quick Reply Form */}
+                <AnimatePresence>
+                  {isQuickReplyOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="mt-6 border-t border-gray-100 pt-6 overflow-hidden"
+                    >
+                      <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 shadow-sm">
+                        <textarea 
+                          placeholder={`Quick reply to ${activeEmailData?.sender}...`}
+                          value={quickReplyText}
+                          onChange={(e) => setQuickReplyText(e.target.value)}
+                          className="w-full min-h-[100px] bg-white rounded-xl p-4 text-sm border border-gray-200 focus:outline-none focus:border-blue-500 transition-all resize-none shadow-inner"
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                           <button 
+                            onClick={() => setIsQuickReplyOpen(false)}
+                            className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            onClick={async () => {
+                              if (!quickReplyText || !activeEmailData) return;
+                              const originalCompose = composeData;
+                              setComposeData({
+                                to: activeEmailData.sender.includes('<') ? activeEmailData.sender.split('<')[1].split('>')[0] : activeEmailData.sender,
+                                replyTo: '',
+                                subject: activeEmailData.subject.startsWith('Re:') ? activeEmailData.subject : `Re: ${activeEmailData.subject}`,
+                                body: quickReplyText,
+                                customHeaders: ''
+                              });
+                              setIsSending(true);
+                              // We wait briefly for state to settle in this component logic
+                              setTimeout(async () => {
+                                await handleSendEmail();
+                                setComposeData(originalCompose);
+                                setQuickReplyText('');
+                                setIsQuickReplyOpen(false);
+                              }, 0);
+                            }}
+                            disabled={isSending}
+                            className="px-6 py-2 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-700 disabled:bg-gray-400 shadow-lg shadow-blue-50 transition-all active:scale-95 flex items-center gap-2"
+                          >
+                            {isSending ? <div className="w-3 h-3 border-2 border-white border-t-transparent animate-spin rounded-full"></div> : <SendIcon className="w-3 h-3 fill-current" />}
+                            Dispatch Response
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           )}
