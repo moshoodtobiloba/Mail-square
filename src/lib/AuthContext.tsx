@@ -84,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logOut = async () => {
     try {
       localStorage.removeItem('gmail_access_token');
+      localStorage.removeItem('last_visited_path');
       await signOut(auth);
     } catch (error) {
       console.error("Error signing out", error);

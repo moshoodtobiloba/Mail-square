@@ -1585,7 +1585,7 @@ export default function MailView() {
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-blue-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Awaiting Step 1</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.floor(leads.length * 0.42) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.42)) : 0}</p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
                     <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-tighter">Healthy</span>
@@ -1595,7 +1595,7 @@ export default function MailView() {
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-amber-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Pending Follow-up</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.floor(leads.length * 0.18) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.18)) : 0}</p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full uppercase tracking-tighter">Scheduled</span>
@@ -1605,7 +1605,7 @@ export default function MailView() {
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-emerald-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Converted</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.floor(leads.length * 0.08) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.08)) : 0}</p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
                     <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase tracking-tighter">Closed</span>
@@ -1701,16 +1701,22 @@ export default function MailView() {
                             <span>{leads.length > 0 ? 'Active' : 'Empty'}</span>
                           </div>
                           <div className="w-full bg-gray-50 h-2 rounded-full overflow-hidden">
-                            <div className={`bg-emerald-500 h-full w-[${leads.length > 0 ? 100 : 0}%] rounded-full`} />
+                            <div 
+                              className="bg-emerald-500 h-full rounded-full transition-all duration-1000" 
+                              style={{ width: leads.length > 0 ? '100%' : '0%' }}
+                            />
                           </div>
                         </div>
                         <div className="space-y-2">
                           <div className="flex justify-between text-[11px] font-black uppercase tracking-tighter">
                             <span className="text-amber-500">In-Transit</span>
-                            <span>{scheduledEmails.length}</span>
+                            <span>{scheduledEmails.length} Envelopes</span>
                           </div>
                           <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-                            <div className="bg-amber-400 h-full w-[15%] rounded-full" />
+                            <div 
+                              className="bg-amber-400 h-full rounded-full transition-all duration-1000" 
+                              style={{ width: leads.length > 0 ? '45%' : '0%' }}
+                            />
                           </div>
                         </div>
                       </div>

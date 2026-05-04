@@ -27,7 +27,7 @@ export default function App() {
     const path = location.pathname.split('/')[1];
     switch (path) {
       case 'home': return 'Home';
-      case 'intelligence': return 'Analytics';
+      case 'intelligence': return 'Leads';
       case 'mail': return 'Mail';
       case 'sequences': return 'Campaigns';
       case 'settings': return 'Settings';
@@ -71,6 +71,8 @@ export default function App() {
   }, []);
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false);
 
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
@@ -92,7 +94,7 @@ export default function App() {
       if (e.detail) {
         const id = e.detail;
         if (id === 'Home') navigate('/home');
-        else if (id === 'Analytics') navigate('/intelligence');
+        else if (id === 'Leads' || id === 'Analytics') navigate('/intelligence');
         else if (id === 'Mail') navigate('/mail');
         else if (id === 'Campaigns') navigate('/sequences');
         else if (id === 'Settings') navigate('/settings');
@@ -104,7 +106,7 @@ export default function App() {
 
   const tabs = [
     { id: 'Home', icon: LayoutDashboard, label: 'Home', path: '/home' },
-    { id: 'Analytics', icon: Zap, label: 'Intelligence', path: '/intelligence' },
+    { id: 'Leads', icon: Users, label: 'Leads Feed', path: '/intelligence' },
     { id: 'Mail', icon: MailIcon, label: 'Inbox', path: '/mail' },
     { id: 'Campaigns', icon: Zap, label: 'Sequences', path: '/sequences' },
     { id: 'Settings', icon: Settings, label: 'Settings', path: '/settings' },
@@ -113,7 +115,7 @@ export default function App() {
   const renderView = () => {
     switch (activeTab) {
       case 'Home': return <DashboardView />;
-      case 'Analytics': return <LeadsView />;
+      case 'Leads': return <LeadsView />;
       case 'Mail': return <MailView />;
       case 'Campaigns': return <CampaignsView />;
       case 'Settings': return <SettingsView />;
@@ -183,35 +185,52 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 px-2">
-                   <div tabIndex={0} className="w-10 h-10 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-sm shadow-xl cursor-pointer hover:ring-4 hover:ring-blue-50 group relative outline-none transition-all overflow-hidden">
-                      {user.photoURL ? (
-                        <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
-                      )}
-                      
-                      <div className="hidden group-focus:block absolute left-0 bottom-full mb-3 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50 cursor-default animate-in slide-in-from-bottom-2 duration-300">
-                         <div className="px-4 py-3 border-b border-gray-50 mb-1 pointer-events-none">
-                            <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
-                            <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
-                         </div>
-                         <button onClick={() => navigate('/settings')} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer font-medium">
-                            Account Settings
-                         </button>
-                         <button 
-                            onClick={logOut}
-                            className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer mt-1 font-bold"
-                         >
-                            Sign Out
-                         </button>
-                      </div>
-                   </div>
-                   <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-gray-900 truncate tracking-tight">{user.displayName || 'Relay User'}</p>
-                      <button onClick={logOut} className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-500 transition-colors">Disconnect</button>
-                   </div>
-                </div>
+                 <div className="flex items-center gap-3 px-2">
+                    <div className="relative">
+                      <button 
+                        onClick={() => setIsProfileOpen(!isProfileOpen)}
+                        className="w-10 h-10 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-sm shadow-xl cursor-pointer hover:ring-4 hover:ring-blue-50 transition-all overflow-hidden"
+                      >
+                         {user.photoURL ? (
+                           <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                         ) : (
+                           <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
+                         )}
+                      </button>
+                       
+                       <AnimatePresence>
+                         {isProfileOpen && (
+                           <>
+                             <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)} />
+                             <motion.div 
+                               initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                               animate={{ opacity: 1, scale: 1, y: 0 }}
+                               exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                               className="absolute left-0 bottom-full mb-3 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50 animate-in slide-in-from-bottom-2 duration-300"
+                             >
+                                <div className="px-4 py-3 border-b border-gray-50 mb-1 pointer-events-none">
+                                   <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
+                                   <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
+                                </div>
+                                <button onClick={() => { setIsProfileOpen(false); navigate('/settings'); }} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer font-medium">
+                                   Account Settings
+                                </button>
+                                <button 
+                                   onClick={logOut}
+                                   className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer mt-1 font-bold"
+                                >
+                                   Sign Out
+                                </button>
+                             </motion.div>
+                           </>
+                         )}
+                       </AnimatePresence>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                       <p className="text-sm font-bold text-gray-900 truncate tracking-tight">{user.displayName || 'Relay User'}</p>
+                       <button onClick={logOut} className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-red-500 transition-colors">Disconnect</button>
+                    </div>
+                 </div>
               </div>
             </aside>
 
@@ -249,24 +268,42 @@ export default function App() {
                     </button>
                     
                     {/* Mobile Profile Trigger */}
-                    <div tabIndex={0} className="lg:hidden w-8 h-8 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-xs shadow-lg cursor-pointer group relative outline-none overflow-hidden">
-                      {user.photoURL ? (
-                        <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
-                      )}
-                      <div className="hidden group-focus:block absolute right-0 top-full mt-2 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50">
-                         <div className="px-4 py-3 border-b border-gray-50 mb-1">
-                            <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
-                            <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
-                         </div>
-                         <button 
-                            onClick={logOut}
-                            className="w-full text-left px-4 py-2 text-sm text-red-600 font-bold"
-                         >
-                            Sign Out
-                         </button>
-                      </div>
+                    <div className="lg:hidden relative">
+                      <button 
+                        onClick={() => setIsMobileProfileOpen(!isMobileProfileOpen)}
+                        className="w-8 h-8 rounded-xl bg-gray-900 border border-white/10 text-white font-bold flex items-center justify-center text-xs shadow-lg cursor-pointer transition-all overflow-hidden"
+                      >
+                        {user.photoURL ? (
+                          <img src={user.photoURL} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{user.displayName ? user.displayName[0].toUpperCase() : (user.email ? user.email[0].toUpperCase() : 'U')}</span>
+                        )}
+                      </button>
+                      
+                      <AnimatePresence>
+                        {isMobileProfileOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsMobileProfileOpen(false)} />
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                              className="absolute right-0 top-full mt-2 w-64 bg-white border border-gray-100 shadow-2xl rounded-2xl p-2 text-left z-50"
+                            >
+                               <div className="px-4 py-3 border-b border-gray-50 mb-1">
+                                  <p className="font-bold text-gray-900 text-sm">{user.displayName || 'App User'}</p>
+                                  <p className="text-xs text-gray-500 truncate mt-0.5">{user.email}</p>
+                               </div>
+                               <button 
+                                  onClick={logOut}
+                                  className="w-full text-left px-4 py-2 text-sm text-red-600 font-bold"
+                               >
+                                  Sign Out
+                               </button>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
                 </div>

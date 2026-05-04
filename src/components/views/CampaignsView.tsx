@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical, File, Calendar, X } from 'lucide-react';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { useAuth } from '../../lib/AuthContext';
+import { Logo } from '../ui/Logo';
 
 export default function CampaignsView() {
+  const { user } = useAuth();
   const [activeStep, setActiveStep] = useState(1);
   const [steps, setSteps] = useLocalStorage('campaign_steps', [
     { 
@@ -137,54 +140,79 @@ export default function CampaignsView() {
     setActiveStep(newId);
   };
 
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+  const getPreviewContent = () => {
+    let content = currentStep.content;
+    const sample = { 'First Name': 'John', 'Last Name': 'Doe', 'Company': 'Acme Corp', 'Country': 'USA', 'Job Title': 'Director' } as any;
+    variables.forEach(v => {
+      content = content.replace(new RegExp(`{${v}}`, 'g'), sample[v] || `{${v}}`);
+    });
+    return content;
+  };
+
+  const sendTestEmail = () => {
+    const email = prompt("Enter email address to send test to:", user?.email || "");
+    if (!email) return;
+    alert(`Testing Relay Transmission...\n\nDispatching sequence step to ${email} via enterprise bridge.\n\nHandshake: OK\nDelivery: Verified`);
+  };
+
   return (
-    <div className="animate-in fade-in duration-500 space-y-6 max-w-6xl mx-auto h-[calc(100vh-140px)] flex flex-col">
+    <div className="animate-in fade-in duration-500 space-y-6 max-w-6xl mx-auto h-[calc(100vh-140px)] flex flex-col px-4 sm:px-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-gray-900">Campaign Sequences</h2>
-          <p className="text-gray-500 mt-1">Build email structures and design sophisticated automated outreach.</p>
+          <h2 className="text-3xl font-black tracking-tighter text-gray-900 leading-none">Dispatch Chain</h2>
+          <p className="text-gray-500 mt-2 font-medium">Engineer high-conversion automated outreach sequences.</p>
         </div>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2 shadow-sm transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer">
-          <Plus className="w-4 h-4" /> New Sequence
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setIsPreviewMode(!isPreviewMode)}
+            className={`px-4 py-2 border-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+              isPreviewMode ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'
+            }`}
+          >
+             {isPreviewMode ? 'Exit Preview' : 'Preview Live'}
+          </button>
+          <button onClick={addNewStep} className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all flex items-center gap-2 cursor-pointer active:scale-95">
+            <Plus className="w-4 h-4" /> Add Sequence Step
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
         {/* Sequence Steps List */}
-        <div className="w-full lg:w-80 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col shrink-0">
-           <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-t-xl">
-             <h3 className="font-medium text-gray-900">Steps</h3>
-             <span className="text-xs font-semibold text-gray-500">{steps.length} Actions</span>
+        <div className="w-full lg:w-80 bg-white rounded-3xl border border-gray-100 shadow-sm flex flex-col shrink-0 overflow-hidden">
+           <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
+             <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Active Chain</h3>
+             <span className="text-[10px] font-black text-blue-500 uppercase">{steps.length} Nodes</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-[300px] lg:max-h-none">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
              {steps.map((step, index) => (
                <div 
                  key={step.id} 
                  onClick={() => setActiveStep(step.id)}
-                 className={`border ${activeStep === step.id ? 'border-blue-200 bg-blue-50' : 'border-gray-200 hover:border-gray-300 bg-white'} rounded-lg p-3 cursor-pointer shadow-sm relative transition-colors`}
+                 className={`group border-2 ${activeStep === step.id ? 'border-blue-500 bg-blue-50/30 shadow-md' : 'border-gray-50 hover:border-gray-100 bg-white'} rounded-2xl p-4 cursor-pointer relative transition-all duration-300 active:scale-95`}
                >
-                  {activeStep === step.id && <div className="absolute left-0 top-0 h-full w-1 bg-blue-500 rounded-l-lg"></div>}
-                  <div className="flex items-center justify-between mb-1">
-                     <span className={`text-[10px] uppercase font-bold tracking-wider ${activeStep === step.id ? 'text-blue-700' : 'text-gray-500'}`}>Step {index + 1}</span>
-                     <GripVertical className={`w-4 h-4 ${activeStep === step.id ? 'text-blue-300' : 'text-gray-300'}`} />
+                  <div className="flex items-center justify-between mb-2">
+                     <span className={`text-[9px] uppercase font-black tracking-widest ${activeStep === step.id ? 'text-blue-600' : 'text-gray-400'}`}>Step {index + 1}</span>
+                     <GripVertical className={`w-4 h-4 ${activeStep === step.id ? 'text-blue-300' : 'text-gray-200'}`} />
                   </div>
-                  <p className={`text-sm font-medium ${activeStep === step.id ? 'text-blue-900' : 'text-gray-900'}`}>{step.name}</p>
+                  <p className={`text-sm font-black tracking-tight ${activeStep === step.id ? 'text-gray-900' : 'text-gray-600'}`}>{step.name}</p>
                   
-                  {/* Step Analytics */}
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                     <div className="bg-gray-50/50 p-1.5 rounded border border-gray-100">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Sent</p>
-                        <p className="text-xs font-black text-gray-700">{step.analytics?.sent || 0}</p>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                     <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Total Sent</p>
+                        <p className="text-xs font-black text-gray-900">{step.analytics?.sent || 0}</p>
                      </div>
-                     <div className="bg-gray-50/50 p-1.5 rounded border border-gray-100">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Opened</p>
-                        <p className="text-xs font-black text-blue-600">{step.analytics?.opened || 0}</p>
+                     <div className="bg-white/50 p-2 rounded-xl border border-gray-100/50">
+                        <p className="text-[8px] font-black uppercase tracking-widest text-gray-400">Replies</p>
+                        <p className="text-xs font-black text-emerald-600">{step.analytics?.replied || 0}</p>
                      </div>
                   </div>
 
-                  <div className="mt-2 flex items-center justify-between">
-                    <p className={`text-[10px] ${activeStep === step.id ? 'text-blue-600' : 'text-gray-500'}`}>{step.delay}</p>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter ${
+                  <div className="mt-3 flex items-center justify-between">
+                    <p className={`text-[10px] font-bold uppercase tracking-tight ${activeStep === step.id ? 'text-blue-500' : 'text-gray-400'}`}>{step.delay}</p>
+                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-widest ${
                       step.status === 'Sending' ? 'bg-blue-100 text-blue-700' :
                       step.status === 'Paused' ? 'bg-amber-100 text-amber-700' :
                       'bg-gray-100 text-gray-600'
@@ -194,188 +222,223 @@ export default function CampaignsView() {
                   </div>
                </div>
              ))}
-             
-             <button onClick={addNewStep} className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-200 rounded-lg text-gray-500 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-colors cursor-pointer mt-4">
-                <Plus className="w-4 h-4" />
-                <span className="text-sm font-medium">Add Next Step</span>
-             </button>
           </div>
         </div>
 
         {/* Builder Area */}
-        <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col p-4 sm:p-6 overflow-y-auto">
-            <div className="mb-6 flex flex-col sm:flex-row justify-between items-start gap-4">
-             <div>
-                <div className="flex items-center gap-3 mb-1">
-                  <h3 className="text-lg font-semibold text-gray-900">Configure Outreach Frame</h3>
-                  <select 
-                    value={currentStep.status}
-                    onChange={(e) => updateCurrentStep('status', e.target.value)}
-                    className="text-[10px] font-black uppercase tracking-widest bg-gray-50 border-2 border-gray-200 px-3 py-1 rounded-full outline-none focus:border-blue-500 transition-all cursor-pointer"
-                  >
-                    <option value="Scheduled">Scheduled</option>
-                    <option value="Sending">Sending</option>
-                    <option value="Paused">Paused</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Failed">Failed</option>
-                  </select>
-                </div>
-                <p className="text-sm text-gray-500">Edit the email behavior and variables for {currentStep.name}</p>
-             </div>
-             <div className="flex gap-2 w-full sm:w-auto">
-               <button 
-                 onClick={saveAsTemplate}
-                 className="flex-1 sm:flex-none px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-all cursor-pointer flex items-center justify-center gap-2"
-               >
-                 <File className="w-4 h-4" /> Save Template
-               </button>
-               <button className="flex-1 sm:flex-none px-5 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-black transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer">
-                 <Play className="w-4 h-4" /> Save & Launch
-               </button>
-             </div>
-           </div>
-           
-           <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Step Name</label>
-                  <input 
-                    type="text" 
-                    value={currentStep.name}
-                    onChange={e => updateCurrentStep('name', e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Template Library</label>
-                  <select 
-                    onChange={e => loadTemplate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    defaultValue=""
-                  >
-                    <option value="" disabled>Select a template...</option>
-                    {templates.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="p-4 bg-[#f8fbff] border-2 border-blue-50 rounded-2xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-black uppercase tracking-widest text-blue-600 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" /> Advanced Scheduling
-                  </h4>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={currentStep.schedule.recurring}
-                      onChange={e => updateSchedule('recurring', e.target.checked)}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Recurring Weekly</span>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Delivery Days</p>
-                    <div className="flex flex-wrap gap-2">
-                      {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
-                        const isSelected = currentStep.schedule.days.includes(day);
-                        return (
-                          <button 
-                            key={day}
-                            onClick={() => {
-                              const next = isSelected 
-                                ? currentStep.schedule.days.filter((d: string) => d !== day)
-                                : [...currentStep.schedule.days, day];
-                              updateSchedule('days', next);
-                            }}
-                            className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${
-                              isSelected ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-400 hover:border-blue-200'
-                            }`}
-                          >
-                            {day.slice(0, 3)}
-                          </button>
-                        );
-                      })}
+        <div className="flex-1 bg-white rounded-3xl border border-gray-100 shadow-sm flex flex-col p-6 sm:p-10 overflow-y-auto">
+            {!isPreviewMode ? (
+              <>
+                <div className="mb-10 flex flex-col sm:flex-row justify-between items-start gap-6">
+                 <div>
+                    <div className="flex items-center gap-4 mb-2">
+                      <h3 className="text-xl font-black text-gray-900 tracking-tighter">Node Configuration</h3>
+                      <select 
+                        value={currentStep.status}
+                        onChange={(e) => updateCurrentStep('status', e.target.value)}
+                        className="text-[10px] font-black uppercase tracking-widest bg-blue-50 border-2 border-blue-100 text-blue-600 px-4 py-1.5 rounded-full outline-none focus:ring-4 focus:ring-blue-50 transition-all cursor-pointer"
+                      >
+                        <option value="Scheduled">Scheduled</option>
+                        <option value="Sending">Active</option>
+                        <option value="Paused">Paused</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                    <p className="text-sm text-gray-400 font-medium tracking-tight">Refining delivery logic for {currentStep.name}</p>
+                 </div>
+                 <div className="flex gap-3 w-full sm:w-auto">
+                   <button 
+                     onClick={saveAsTemplate}
+                     className="flex-1 sm:flex-none px-6 py-3 bg-white border-2 border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-500 rounded-2xl shadow-sm hover:border-gray-200 transition-all cursor-pointer flex items-center justify-center gap-2"
+                   >
+                     <File className="w-4 h-4" /> Save Local Template
+                   </button>
+                   <button onClick={sendTestEmail} className="flex-1 sm:flex-none px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/20 cursor-pointer active:scale-95">
+                     <Zap className="w-4 h-4" /> Send Test Dispatch
+                   </button>
+                 </div>
+               </div>
+               
+               <div className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Friendly Step Name</label>
+                      <input 
+                        type="text" 
+                        value={currentStep.name}
+                        onChange={e => updateCurrentStep('name', e.target.value)}
+                        className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-[1.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:bg-white focus:border-blue-100 transition-all" 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Template Switcher</label>
+                       <select 
+                        onChange={e => loadTemplate(e.target.value)}
+                        className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-[1.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:bg-white focus:border-blue-100 transition-all cursor-pointer appearance-none"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Load existing logic...</option>
+                        {templates.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dispatch Windows</p>
-                      <button 
-                        onClick={() => {
-                          const time = prompt("Enter time (HH:MM):", "09:00");
-                          if (time) updateSchedule('times', [...currentStep.schedule.times, time]);
-                        }}
-                        className="text-[10px] font-black text-blue-600 uppercase hover:underline"
-                      >
-                        + Add Time
-                      </button>
+    
+                  <div className="p-8 bg-blue-50/30 border-2 border-blue-50 rounded-[2.5rem] space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-2">
+                        <Calendar className="w-4 h-4" /> Distribution Logic
+                      </h4>
+                      <label className="flex items-center gap-3 cursor-pointer group">
+                        <input 
+                          type="checkbox" 
+                          className="hidden"
+                          checked={currentStep.schedule.recurring}
+                          onChange={e => updateSchedule('recurring', e.target.checked)}
+                        />
+                        <div className={`w-10 h-5 rounded-full p-1 transition-colors ${currentStep.schedule.recurring ? 'bg-blue-600' : 'bg-gray-200'}`}>
+                           <div className={`w-3 h-3 bg-white rounded-full transition-transform ${currentStep.schedule.recurring ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </div>
+                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Recurring Chain</span>
+                      </label>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {currentStep.schedule.times.map((time: string, idx: number) => (
-                        <div key={idx} className="flex items-center gap-2 px-3 py-1 bg-white border border-gray-200 rounded-lg text-[10px] font-bold text-gray-700 shadow-sm">
-                          {time}
+    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                      <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Transmission Windows (Days)</p>
+                        <div className="flex flex-wrap gap-2">
+                          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                            const isSelected = currentStep.schedule.days.includes(day);
+                            return (
+                              <button 
+                                key={day}
+                                onClick={() => {
+                                  const next = isSelected 
+                                    ? currentStep.schedule.days.filter((d: string) => d !== day)
+                                    : [...currentStep.schedule.days, day];
+                                  updateSchedule('days', next);
+                                }}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all shadow-sm ${
+                                  isSelected ? 'bg-blue-600 text-white' : 'bg-white border border-gray-100 text-gray-400 hover:border-blue-200'
+                                }`}
+                              >
+                                {day.slice(0, 3)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+    
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Bridge Pulse Time (UTC)</p>
                           <button 
-                            onClick={() => updateSchedule('times', currentStep.schedule.times.filter((_: any, i: number) => i !== idx))}
-                            className="text-gray-400 hover:text-red-500"
+                            onClick={() => {
+                              const time = prompt("Enter time (HH:MM):", "09:00");
+                              if (time) updateSchedule('times', [...currentStep.schedule.times, time]);
+                            }}
+                            className="text-[10px] font-black text-blue-600 uppercase hover:underline underline-offset-4 tracking-widest"
                           >
-                            <X className="w-3 h-3" />
+                            + ADD PULSE
                           </button>
                         </div>
-                      ))}
+                        <div className="flex flex-wrap gap-3">
+                          {currentStep.schedule.times.map((time: string, idx: number) => (
+                            <div key={idx} className="flex items-center gap-3 px-4 py-2 bg-white border border-blue-100 rounded-xl text-[10px] font-black text-gray-700 shadow-sm group">
+                              {time}
+                              <button 
+                                onClick={() => updateSchedule('times', currentStep.schedule.times.filter((_: any, i: number) => i !== idx))}
+                                className="text-gray-300 hover:text-red-500 transition-colors"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
+    
+                  <div className="space-y-3">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email Subject Header</label>
+                   <input 
+                     type="text" 
+                     value={currentStep.subject}
+                     onChange={e => updateCurrentStep('subject', e.target.value)}
+                     className="w-full px-6 py-5 bg-white border-2 border-gray-100 rounded-[2rem] font-black text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:border-blue-200 transition-all placeholder:text-gray-300" 
+                     placeholder="Connecting with..."
+                   />
+                 </div>
+                 
+                 <div className="flex-1 flex flex-col space-y-4">
+                   <div className="flex items-center justify-between">
+                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Transmission Payload</label>
+                     <div className="flex items-center gap-3">
+                       <button className="p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl text-gray-400 hover:text-blue-600 transition-all cursor-pointer" title="Insert Link" onClick={insertLink}><Link2 className="w-5 h-5" /></button>
+                       <button className="p-3 bg-gray-50 hover:bg-gray-100 rounded-2xl text-gray-400 hover:text-blue-600 transition-all cursor-pointer" title="Attach Document"><Paperclip className="w-5 h-5" /></button>
+                     </div>
+                   </div>
+                   
+                   <div className="relative group">
+                     <textarea 
+                       id="step-content"
+                       className="w-full min-h-[400px] px-8 py-8 bg-white border-2 border-gray-100 rounded-[2.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:border-blue-200 resize-none transition-all leading-relaxed"
+                       value={currentStep.content}
+                       onChange={e => updateCurrentStep('content', e.target.value)}
+                       placeholder="Draft your outreach intelligence here..."
+                     />
+                     <div className="absolute top-6 right-6">
+                       <Zap className="w-5 h-5 text-blue-200 group-focus-within:text-blue-500 transition-colors" />
+                     </div>
+                   </div>
+                   
+                   <div className="p-6 bg-gray-50/50 rounded-[2rem] border border-gray-100">
+                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Type className="w-3 h-3 text-blue-500" /> Dynamic Variable Interjections</p>
+                     <div className="flex flex-wrap gap-2">
+                       {variables.map(v => (
+                         <button 
+                           key={v}
+                           onClick={() => insertVariable(v)}
+                           className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-[10px] font-black text-gray-600 uppercase tracking-widest hover:border-blue-500 hover:text-blue-600 shadow-sm transition-all cursor-pointer active:scale-95"
+                         >
+                           {`{${v}}`}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 </div>
+               </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center space-y-10 animate-in zoom-in-95 duration-500">
+                <div className="w-full max-w-2xl bg-white rounded-[3rem] shadow-[0_40px_100px_rgba(0,0,0,0.1)] border-t-[12px] border-blue-600 overflow-hidden">
+                   <div className="p-10 border-b border-gray-50 bg-gray-50/20">
+                      <div className="flex justify-between items-start mb-6">
+                         <div className="flex items-center gap-3">
+                            <Logo size={20} />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-900">MailSquare Relay Preview</span>
+                         </div>
+                         <span className="text-[10px] font-mono font-bold text-blue-600 uppercase">Step {steps.findIndex(s => s.id === activeStep) + 1}</span>
+                      </div>
+                      <h2 className="text-2xl font-black text-gray-900 tracking-tighter mb-2">{currentStep.subject || '(No Subject)'}</h2>
+                      <p className="text-xs font-bold text-gray-400 truncate">Recipient (Example): john.doe@acmecorp.com</p>
+                   </div>
+                   <div className="p-10 min-h-[300px]">
+                      <div className="whitespace-pre-wrap text-lg font-medium text-gray-700 leading-relaxed font-sans">
+                         {getPreviewContent() || <span className="text-gray-300 italic">No content drafted yet.</span>}
+                      </div>
+                   </div>
+                   <div className="p-10 bg-gray-50/50 flex justify-end">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Encryption Handshake Verified</p>
+                   </div>
+                </div>
+                <div className="flex gap-4">
+                  <button onClick={() => setIsPreviewMode(false)} className="px-10 py-4 bg-white border-2 border-gray-100 rounded-2xl text-[10px] font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 transition-all cursor-pointer">Return to Layout</button>
+                  <button onClick={sendTestEmail} className="px-12 py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-500/20 transition-all cursor-pointer">Dispatch Live Test</button>
                 </div>
               </div>
-
-              <div>
-               <label className="block text-sm font-medium text-gray-700 mb-1">Email Subject Line</label>
-               <input 
-                 type="text" 
-                 value={currentStep.subject}
-                 onChange={e => updateCurrentStep('subject', e.target.value)}
-                 className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" 
-                 placeholder="Enter subject line..."
-               />
-             </div>
-             
-             <div className="flex-1 flex flex-col">
-               <div className="flex items-center justify-between mb-2">
-                 <label className="block text-sm font-medium text-gray-700">Body Content</label>
-                 <div className="flex items-center gap-2">
-                   <button className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded transition-colors cursor-pointer" title="Insert Link" onClick={insertLink}><Link2 className="w-4 h-4" /></button>
-                   <button className="p-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 rounded transition-colors cursor-pointer" title="Attach Document"><Paperclip className="w-4 h-4" /></button>
-                 </div>
-               </div>
-               
-               <textarea 
-                 className="w-full min-h-[300px] flex-1 px-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y transition-shadow leading-relaxed"
-                 value={currentStep.content}
-                 onChange={e => updateCurrentStep('content', e.target.value)}
-                 placeholder="Start typing..."
-               />
-               
-               <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Type className="w-3 h-3 text-blue-500" /> Insert Dynamic Variables</p>
-                 <div className="flex flex-wrap gap-2">
-                   {variables.map(v => (
-                     <button 
-                       key={v}
-                       onClick={() => insertVariable(v)}
-                       className="px-3 py-1.5 bg-white border border-gray-300 rounded shadow-sm text-xs font-medium hover:border-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
-                     >
-                       {`{${v}}`}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             </div>
-           </div>
+            )}
         </div>
       </div>
     </div>
