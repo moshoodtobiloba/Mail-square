@@ -163,10 +163,15 @@ export default function MailView() {
     }
   };
 
+  const [isServerHealthy, setIsServerHealthy] = useState(true);
+  const [syncStatus, setSyncStatus] = useState('Live');
+  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   const [activeLabel, setActiveLabel] = useState('Primary');
   const [threadMessages, setThreadMessages] = useState<any[]>([]);
+  const [reactions, setReactions] = useState<any[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<any | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [leads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [showLeadResults, setShowLeadResults] = useState(false);
@@ -193,10 +198,14 @@ export default function MailView() {
   const [isHealerActive, setIsHealerActive] = useState(false);
   const [lastHealTime, setLastHealTime] = useState<number>(Date.now());
   const [isDragging, setIsDragging] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [toError, setToError] = useState<string | null>(null);
   const [replyToError, setReplyToError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [sortCriterion, setSortCriterion] = useState<'date' | 'sender' | 'subject' | 'read'>('date');
 
   const [scheduledEmails, setScheduledEmails] = useLocalStorage<any[]>('scheduled_emails', []);
   const [autoSendConfig, setAutoSendConfig] = useLocalStorage('auto_send_config_v2', {
@@ -226,13 +235,31 @@ export default function MailView() {
     createdAt: any;
   }
   
-  const [reactions, setReactions] = useState<MessageReaction[]>([]);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [isServerHealthy, setIsServerHealthy] = useState<boolean | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'Live' | 'Syncing...' | 'Error' | 'Initializing'>('Initializing');
-  const [lastSyncTime, setLastSyncTime] = useState<number>(Date.now());
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [contactData, setContactData] = useState({ name: '', email: '', subject: '', message: '' });
 
-  // Check backend health on mount
+  const handleContactSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if(!contactData.email || !contactData.message) return;
+    alert(`Sending message from ${contactData.name} to moshoodabdulmujib9@gmail.com`);
+    setContactData({ name: '', email: '', subject: '', message: '' });
+    setShowContactForm(false);
+  };
+
+  // Auto-save logic
+  useEffect(() => {
+    if (!isComposeOpen) return;
+
+    const interval = setInterval(async () => {
+        setIsSaving(true);
+        localStorage.setItem('email_draft', JSON.stringify({ ...contactData, attachments })); 
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setLastSaved(new Date());
+        setIsSaving(false);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isComposeOpen, contactData, attachments]);
+
   useEffect(() => {
     const checkHealth = async () => {
       try {
@@ -531,6 +558,20 @@ export default function MailView() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [labelCounts, setLabelCounts] = useState<Record<string, number>>({});
+
+  const sortedEmails = useMemo(() => {
+    let sorted = [...realEmails];
+    if (sortCriterion === 'date') {
+      sorted.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+    } else if (sortCriterion === 'sender') {
+      sorted.sort((a, b) => a.sender.localeCompare(b.sender));
+    } else if (sortCriterion === 'subject') {
+      sorted.sort((a, b) => a.subject.localeCompare(b.subject));
+    } else if (sortCriterion === 'read') {
+      sorted.sort((a, b) => (a.read === b.read ? 0 : a.read ? 1 : -1));
+    }
+    return sorted;
+  }, [realEmails, sortCriterion]);
 
   // Fetch label counts via Proxy
   useEffect(() => {
@@ -1256,8 +1297,6 @@ export default function MailView() {
       setLoadingEmails(false);
     }
   };
-
-  const [attachments, setAttachments] = useState<File[]>([]);
   const [quickReplyText, setQuickReplyText] = useState('');
   const [isQuickReplyOpen, setIsQuickReplyOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2760,6 +2799,8 @@ export default function MailView() {
           <div className="bg-gray-900 text-white px-5 py-4 sm:py-3 flex items-center justify-between cursor-pointer sticky top-0 sm:relative">
             <span className="text-sm font-bold tracking-tight uppercase">New Campaign Message</span>
             <div className="flex items-center gap-1.5">
+               {isSaving && <span className="text-xs text-blue-400">Saving...</span>}
+               {lastSaved && !isSaving && <span className="text-xs text-gray-400">Saved at {lastSaved.toLocaleTimeString()}</span>}
                <button className="p-1.5 hover:bg-white/10 rounded-lg text-gray-300 transition-colors hidden sm:block"><Minimize2 className="w-4 h-4" /></button>
                <button onClick={() => setIsComposeOpen(false)} className="p-2 sm:p-1.5 hover:bg-white/10 rounded-lg text-white sm:text-gray-300 transition-colors"><X className="w-6 h-6 sm:w-4 sm:h-4" /></button>
             </div>

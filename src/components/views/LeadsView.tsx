@@ -6,53 +6,96 @@ import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function LeadsView() {
-  const [leads, setLeads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
+  const [leads, setLeads] = useLocalStorage<{email: string, firstName: string, lastName: string, tags: string[], score: number, status: string, signals?: {opens: number, replies: number, clicks: number}}[]>('lead_database', []);
   const [newLead, setNewLead] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<{message: string, undoAction?: () => void} | null>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [importProgress, setImportProgress] = useState(0);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
 
+  const calculateScore = (signals?: {opens: number, replies: number, clicks: number}) => {
+    if (!signals) return 0;
+    return Math.min(100, (signals.opens * 5) + (signals.clicks * 15) + (signals.replies * 30));
+  };
+
+  const isValidEmail = (email: string) => /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+
   const handleAdd = () => {
     const trimmed = newLead.trim();
-    if (!trimmed || !trimmed.includes('@')) return;
+    if (!trimmed) return;
+    if (!isValidEmail(trimmed)) {
+      setToast({ message: "Invalid email format." });
+      return;
+    }
     const { firstName, lastName } = parseEmailNames(trimmed);
     
     // Avoid duplicates
     if (leads.find(l => l.email.toLowerCase() === trimmed.toLowerCase())) {
-      alert("This lead is already in your database.");
+      setToast({ message: "This lead is already in your database." });
       return;
     }
 
-    setLeads([{ email: trimmed, firstName, lastName }, ...leads]);
+    setLeads([{ email: trimmed, firstName, lastName, tags: [], score: 0, status: 'new', signals: {opens: 0, replies: 0, clicks: 0} }, ...leads]);
     setNewLead('');
+    setToast({ message: "Lead added!" });
   }
+  
+  const toggleLeadSelection = (email: string) => {
+    const newSelected = new Set(selectedLeads);
+    if (newSelected.has(email)) newSelected.delete(email);
+    else newSelected.add(email);
+    setSelectedLeads(newSelected);
+  };
+    
+  const deleteLead = (email: string) => {
+      const leadToDelete = leads.find(l => l.email === email);
+      if(!leadToDelete) return;
+      
+      const newLeads = leads.filter(l => l.email !== email);
+      setLeads(newLeads);
+      
+      setToast({ 
+          message: `Lead ${email} deleted`, 
+          undoAction: () => {
+              setLeads(prev => [leadToDelete, ...prev]);
+              setToast(null);
+          } 
+      });
+      setTimeout(() => setToast(null), 5000);
+  };
 
   const handleBulkAdd = () => {
     if (!bulkText.trim()) return;
     setBulkLoading(true);
     
-    // Split by lines first
     const lines = bulkText.split(/\n/);
-    const newLeadsToAdd: any[] = [];
+    const validLeadsToAdd: any[] = [];
+    const invalidEmails: string[] = [];
+    const duplicateEmails: Set<string> = new Set();
     const existingEmails = new Set(leads.map(l => l.email.toLowerCase()));
 
     lines.forEach(line => {
       const trimmedLine = line.trim();
       if (!trimmedLine) return;
 
-      // Try to find email in line
-      // Simple regex for email detection
       const emailMatch = trimmedLine.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
       if (emailMatch) {
         const email = emailMatch[0].toLowerCase();
-        if (!existingEmails.has(email)) {
-          // Check if line has names (e.g., "John Doe john@example.com" or "john@example.com, John, Doe")
+        
+        if (!isValidEmail(email)) {
+           invalidEmails.push(email);
+        } else if (existingEmails.has(email) || validLeadsToAdd.some(l => l.email === email)) {
+           duplicateEmails.add(email);
+        } else {
+          // Check if line has names
           let firstName = '';
           let lastName = '';
           
-          // Basic split by common delimiters
           const parts = trimmedLine.split(/[,;\t|]/).map(p => p.trim()).filter(p => p && !p.includes('@'));
           
           if (parts.length >= 2) {
@@ -61,7 +104,6 @@ export default function LeadsView() {
           } else if (parts.length === 1) {
             firstName = parts[0];
           } else {
-            // Try to extract from before/after email in line if space separated
             const textWithoutEmail = trimmedLine.replace(emailMatch[0], '').trim();
             const spaceParts = textWithoutEmail.split(/\s+/).filter(p => p);
             if (spaceParts.length >= 2) {
@@ -73,29 +115,33 @@ export default function LeadsView() {
           }
 
           const parsedNames = parseEmailNames(email);
-          newLeadsToAdd.push({
+          validLeadsToAdd.push({
             email: email,
             firstName: firstName || parsedNames.firstName,
-            lastName: lastName || parsedNames.lastName
+            lastName: lastName || parsedNames.lastName,
+            tags: [],
+            score: 0,
+            status: 'new',
+            signals: {opens: 0, replies: 0, clicks: 0}
           });
-          existingEmails.add(email);
         }
       }
     });
 
-    if (newLeadsToAdd.length > 0) {
-      setTimeout(() => {
-        setLeads(prev => [...newLeadsToAdd, ...prev]);
-        setImportStatus('success');
-        setTimeout(() => setImportStatus('idle'), 3000);
-        setBulkText('');
-        setIsBulkModalOpen(false);
-        setBulkLoading(false);
-      }, 1500); // Add a small delay for "Processing" feel
-    } else {
-      alert("No new valid emails found in the pasted text.");
-      setBulkLoading(false);
+    if (validLeadsToAdd.length > 0) {
+      setLeads(prev => [...validLeadsToAdd, ...prev]);
     }
+
+    const messages = [];
+    if (validLeadsToAdd.length > 0) messages.push(`Added ${validLeadsToAdd.length} leads.`);
+    if (invalidEmails.length > 0) messages.push(`${invalidEmails.length} invalid emails skipped.`);
+    if (duplicateEmails.size > 0) messages.push(`${duplicateEmails.size} duplicates removed.`);
+    
+    setToast({ message: messages.join(' ') });
+    
+    setBulkLoading(false);
+    setIsBulkModalOpen(false);
+    setBulkText('');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,19 +153,40 @@ export default function LeadsView() {
       skipEmptyLines: true,
       complete: (results) => {
         const newLeads: any[] = [];
+        const existingEmails = new Set(leads.map(l => l.email.toLowerCase()));
+        const batchEmails = new Set<string>();
+        
+        let invalidCount = 0;
+        let duplicateCount = 0;
+
         results.data.forEach((row: any) => {
-          const email = row.email || row.Email || row.EMAIL || Object.values(row).find(v => typeof v === 'string' && v.includes('@'));
-          if (email && typeof email === 'string') {
+          const emailRaw = row.email || row.Email || row.EMAIL || Object.values(row).find(v => typeof v === 'string' && v.includes('@'));
+          if (emailRaw && typeof emailRaw === 'string') {
+            const email = emailRaw.trim().toLowerCase();
+            
+            if (!isValidEmail(email)) {
+               invalidCount++;
+               return;
+            }
+
+            if (existingEmails.has(email) || batchEmails.has(email)) {
+               duplicateCount++;
+               return;
+            }
+
             const firstName = row.firstName || row.first_name || row['First Name'] || '';
             const lastName = row.lastName || row.last_name || row['Last Name'] || '';
             
-            if (!leads.find(l => l.email.toLowerCase() === email.toLowerCase())) {
-              newLeads.push({ 
-                email: email.trim(), 
+            newLeads.push({ 
+                email: email, 
                 firstName: firstName.trim() || parseEmailNames(email).firstName, 
-                lastName: lastName.trim() || parseEmailNames(email).lastName 
-              });
-            }
+                lastName: lastName.trim() || parseEmailNames(email).lastName,
+                tags: [],
+                score: 0,
+                status: 'new',
+                signals: {opens: 0, replies: 0, clicks: 0}
+            });
+            batchEmails.add(email);
           }
         });
 
@@ -128,12 +195,21 @@ export default function LeadsView() {
           setImportStatus('success');
           setTimeout(() => setImportStatus('idle'), 3000);
         } else {
-          alert("No new valid leads found in CSV.");
-        }
+             setImportStatus('error');
+             setTimeout(() => setImportStatus('idle'), 3000);
+        }                
+        
+        const messages = [];
+        if (newLeads.length > 0) messages.push(`Added ${newLeads.length} leads.`);
+        if (invalidCount > 0) messages.push(`${invalidCount} invalid emails skipped.`);
+        if (duplicateCount > 0) messages.push(`${duplicateCount} duplicates removed.`);
+        
+        setToast({ message: messages.length > 0 ? messages.join(' ') : "No valid leads found in CSV." });
       },
       error: (err) => {
         console.error("CSV Parse Error:", err);
         setImportStatus('error');
+        setToast({ message: "Failed to import CSV." });
       }
     });
   };
@@ -153,12 +229,53 @@ export default function LeadsView() {
 
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
+      {toast && (
+        <motion.div 
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="fixed bottom-8 right-8 bg-gray-900 text-white px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4 z-[100]"
+        >
+          <p className="text-sm font-bold">{toast.message}</p>
+          {toast.undoAction && (
+            <button onClick={toast.undoAction} className="text-blue-400 hover:text-blue-300 font-black uppercase text-xs tracking-widest px-3 py-1 border border-blue-900 rounded-lg">Undo</button>
+          )}
+        </motion.div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-gray-900 tracking-tighter">Lead Intelligence</h2>
           <p className="text-gray-500 font-medium mt-1">Manage {leads.length} high-intent contacts with smart relay matching.</p>
         </div>
         <div className="flex gap-2">
+          {selectedLeads.size > 0 && (
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 px-4 py-2 rounded-2xl mr-4 animate-in fade-in slide-in-from-right-4">
+              <span className="text-xs font-black text-blue-600 uppercase tracking-widest">{selectedLeads.size} Selected</span>
+              <button 
+                onClick={() => {
+                  if(window.confirm('Are you sure you want to delete these leads?')) {
+                    setLeads(leads.filter(l => !selectedLeads.has(l.email)));
+                    setSelectedLeads(new Set());
+                    setToast({ message: `Deleted ${selectedLeads.size} leads` });
+                  }
+                }}
+                className="px-3 py-1 bg-white text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-100 hover:bg-red-50"
+              >
+                  Delete
+              </button>
+              <button 
+                 onClick={() => {
+                     setLeads(leads.map(l => selectedLeads.has(l.email) ? {...l, status: 'contacted'} : l));
+                     setSelectedLeads(new Set());
+                     setToast({ message: `Marked ${selectedLeads.size} leads as contacted` });
+                 }}
+                 className="px-3 py-1 bg-white text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-50"
+              >
+                  Contacted
+              </button>
+            </div>
+          )}
           {leads.length > 0 && (
             <div className="relative">
               {showWipeConfirm ? (
@@ -301,7 +418,8 @@ export default function LeadsView() {
           </div>
         </div>
         <div>
-          <div className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 bg-gray-50/10">
+          <div className="grid grid-cols-[50px_2fr_1fr_1fr_1fr_100px] px-8 py-4 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b border-gray-50 bg-gray-50/10">
+            <div><input type="checkbox" onChange={(e) => setSelectedLeads(new Set(e.target.checked ? filteredLeads.map(l => l.email) : []))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" /></div>
             <div>Email Identity</div>
             <div>First Name</div>
             <div>Last Name</div>
@@ -317,33 +435,32 @@ export default function LeadsView() {
                 <p className="text-sm text-gray-400 mt-2 font-medium">Try a different search or import a list.</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-50">
+           <div className="divide-y divide-gray-50">
               {filteredLeads.map((lead, i) => {
-                const probValue = lead.firstName ? Math.floor(Math.random() * 15) + 75 : Math.floor(Math.random() * 20) + 40;
+                const score = calculateScore(lead.signals);
+                const isSelected = selectedLeads.has(lead.email);
                 return (
-                  <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_100px] px-8 py-5 text-sm hover:bg-blue-50/30 transition-all items-center group">
-                    <div className="flex items-center gap-3">
+                  <div key={i} className={`flex flex-col sm:grid sm:grid-cols-[50px_2fr_1fr_1fr_1fr_100px] px-8 py-5 text-sm hover:bg-blue-50/30 transition-all items-center gap-4 ${isSelected ? 'bg-blue-50/50' : ''}`}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleLeadSelection(lead.email)} className="hidden sm:block rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
                       <div className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 font-black text-xs">
                         {lead.email[0].toUpperCase()}
                       </div>
                       <div className="text-gray-900 font-bold tracking-tight truncate">{lead.email}</div>
                     </div>
-                    <div className="text-gray-600 font-medium">{lead.firstName || <span className="text-gray-300 italic">Auto</span>}</div>
-                    <div className="text-gray-600 font-medium">{lead.lastName || <span className="text-gray-300 italic">Auto</span>}</div>
+                    <div className="hidden sm:block text-gray-600 font-medium">{lead.firstName || <span className="text-gray-300 italic">Auto</span>}</div>
+                    <div className="hidden sm:block text-gray-600 font-medium">{lead.lastName || <span className="text-gray-300 italic">Auto</span>}</div>
                     <div className="flex items-center gap-2">
-                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${probValue > 70 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                         {probValue}%
+                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${score > 70 ? 'bg-emerald-50 text-emerald-600' : score > 40 ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'}`}>
+                         {score} pts
                        </span>
                     </div>
-                    <div className="text-right">
+                    <div className="w-full sm:text-right">
                       <button 
-                        onClick={(e) => {
-                           e.stopPropagation();
-                           alert(`Launching automation for ${lead.email}...`);
-                        }}
-                        className="px-4 py-1.5 bg-gray-50 text-gray-600 rounded-xl text-[10px] font-black underline uppercase tracking-widest hover:bg-blue-600 hover:text-white hover:no-underline transition-all"
+                        onClick={() => deleteLead(lead.email)}
+                        className="w-full sm:w-auto px-4 py-1.5 bg-gray-50 text-red-600 rounded-xl text-[10px] font-black underline uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all"
                       >
-                        Outreach
+                        Delete
                       </button>
                     </div>
                   </div>

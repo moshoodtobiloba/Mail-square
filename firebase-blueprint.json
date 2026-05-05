@@ -82,9 +82,18 @@
         },
         "userId": {
           "type": "string"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "score": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
         }
       },
-      "required": ["email", "firstName", "lastName", "userId"]
+      "required": ["email", "firstName", "lastName", "userId", "tags", "score", "status"]
     },
     "CampaignStep": {
       "title": "CampaignStep",

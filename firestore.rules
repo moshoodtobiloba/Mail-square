@@ -42,11 +42,14 @@ service cloud.firestore {
     }
 
     function isValidLead(data) {
-      return data.keys().hasAll(['email', 'firstName', 'lastName', 'userId']) && data.keys().size() == 4
+      return data.keys().hasAll(['email', 'firstName', 'lastName', 'userId', 'tags', 'score', 'status']) && data.keys().size() == 7
         && data.email is string && data.email.size() <= 200
         && data.firstName is string && data.firstName.size() <= 100
         && data.lastName is string && data.lastName.size() <= 100
-        && data.userId is string && data.userId == request.auth.uid;
+        && data.userId is string && data.userId == request.auth.uid
+        && data.tags is list && data.tags.size() <= 50
+        && data.score is number
+        && data.status is string && data.status.size() <= 50;
     }
 
     function isValidCampaignStep(data) {
@@ -120,6 +123,10 @@ service cloud.firestore {
         allow create: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
                       && isValidLead(incoming())
                       && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
+                      && isValidLead(incoming())
+                      && incoming().userId == existing().userId
+                      && incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'score', 'status']);
         allow delete: if isSignedIn() && request.auth.uid == userId;
       }
 

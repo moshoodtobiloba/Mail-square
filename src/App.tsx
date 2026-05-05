@@ -14,6 +14,7 @@ import { useLocalStorage } from './hooks/useLocalStorage.ts';
 import { useAuth } from './lib/AuthContext.tsx';
 import { SplashScreen } from './components/ui/SplashScreen.tsx';
 import { Logo, LogoText } from './components/ui/Logo.tsx';
+import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
 
 export default function App() {
   const { user, loading, logOut } = useAuth();
@@ -314,11 +315,12 @@ export default function App() {
                 <div className="max-w-[1440px] mx-auto p-4 sm:p-8 min-h-full flex flex-col">
                   <div className="flex-1 pb-32 lg:pb-12">
                     <Routes>
-                      <Route path="/home" element={<DashboardView />} />
-                      <Route path="/intelligence" element={<LeadsView />} />
-                      <Route path="/mail" element={<MailView />} />
-                      <Route path="/sequences" element={<CampaignsView />} />
-                      <Route path="/settings" element={<SettingsView />} />
+                      <Route path="/home" element={<ErrorBoundary><DashboardView /></ErrorBoundary>} />
+                      <Route path="/intelligence" element={<ErrorBoundary><LeadsView /></ErrorBoundary>} />
+                      <Route path="/mail" element={<ErrorBoundary><MailView /></ErrorBoundary>} />
+                      <Route path="/sequences" element={<ErrorBoundary><CampaignsView /></ErrorBoundary>} />
+                      <Route path="/settings" element={<ErrorBoundary><SettingsView /></ErrorBoundary>} />
+
                       <Route path="*" element={<Navigate to="/mail" replace />} />
                     </Routes>
                   </div>

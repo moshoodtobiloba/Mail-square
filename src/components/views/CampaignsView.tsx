@@ -95,7 +95,7 @@ export default function CampaignsView() {
     updateCurrentStep('content', newContent);
   };
 
-  const variables = ['First Name', 'Last Name', 'Company', 'Country', 'Job Title'];
+  const variables = ['FirstName', 'LastName', 'Company', 'Country', 'Job Title'];
 
   const saveAsTemplate = () => {
     const name = prompt("Enter template name:", currentStep.name);
