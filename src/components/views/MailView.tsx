@@ -12,6 +12,15 @@ import { useLocalStorage } from '../../hooks/useLocalStorage';
 
 const MOCK_EMAILS: any[] = [];
 
+const RESTRICTED_EMAILS = [
+  'no-reply@google.com',
+  'noreply@google.com',
+];
+
+const isEmailRestricted = (email: string) => {
+  return RESTRICTED_EMAILS.includes(email.toLowerCase());
+};
+
 const validateEmail = (email: string) => {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(email);
@@ -301,6 +310,11 @@ export default function MailView() {
   const toggleReaction = async (emoji: string) => {
     if (!user || !selectedEmail) {
       return;
+    }
+
+    if (isEmailRestricted(selectedEmail.senderEmail)) {
+        alert("This domain does not accept reactions.");
+        return;
     }
 
     const existingReaction = reactions.find(r => r.emoji === emoji && r.userId === user.uid);
@@ -682,6 +696,7 @@ export default function MailView() {
                 const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
                 const senderRaw = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
                 const sender = senderRaw.replace(/"/g, '').split('<')[0].trim() || senderRaw.split('<')[0].trim() || 'Unknown';
+                const senderEmail = senderRaw.includes('<') ? senderRaw.split('<')[1].split('>')[0] : senderRaw;
                 const isRead = !detailData.labelIds?.includes('UNREAD');
                 const dateObj = new Date(parseInt(detailData.internalDate));
                 const timeString = dateObj.toLocaleDateString() === new Date().toLocaleDateString() 
@@ -716,6 +731,7 @@ export default function MailView() {
                 return {
                   id: msg.id, 
                   sender, 
+                  senderEmail,
                   subject, 
                   snippet: detailData.snippet, 
                   body: decodedBody || detailData.snippet,
@@ -1055,6 +1071,16 @@ export default function MailView() {
 
   const handleReply = () => {
     if (!activeEmailData) return;
+    
+    // Extract actual email address from sender header
+    const senderRaw = activeEmailData.senderEmail || activeEmailData.sender;
+    const senderEmail = senderRaw.includes('<') ? senderRaw.split('<')[1].split('>')[0] : senderRaw;
+
+    if (isEmailRestricted(senderEmail)) {
+        alert("This domain does not accept replies.");
+        return;
+    }
+
     if (activeEmailData.sender.toLowerCase().includes(activeAccount.email.toLowerCase())) {
        // Find the recipient from the thread or original headers
        // Simplified for this context
@@ -2564,11 +2590,12 @@ export default function MailView() {
                         <button
                           key={emoji}
                           onClick={() => toggleReaction(emoji)}
+                          disabled={isEmailRestricted(activeEmailData?.senderEmail || activeEmailData?.sender || '')}
                           className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium transition-all ${
                             hasUserReacted 
                               ? 'bg-blue-50 text-blue-600 border border-blue-200' 
                               : 'bg-gray-50 text-gray-600 border border-gray-100 hover:bg-gray-100'
-                          }`}
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                           <span>{emoji}</span>
                           <span className="text-xs font-bold">{count}</span>
@@ -2581,7 +2608,8 @@ export default function MailView() {
                 <div className="flex items-center gap-3">
                   <button 
                     onClick={handleReply}
-                    className="px-5 py-2.5 bg-white border border-gray-300 rounded-full text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer shadow-sm transition-colors"
+                    disabled={isEmailRestricted(activeEmailData?.senderEmail || activeEmailData?.sender || '')}
+                    className="px-5 py-2.5 bg-white border border-gray-300 rounded-full text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <CornerUpLeft className="w-4 h-4" /> Reply
                   </button>

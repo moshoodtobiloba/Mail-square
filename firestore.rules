@@ -69,6 +69,7 @@ service cloud.firestore {
 
     function isValidMessageReaction(data) {
       return data.keys().hasAll(['messageId', 'emoji', 'userId', 'userName', 'createdAt'])
+        && data.keys().size() == 5
         && data.messageId is string && data.messageId.size() <= 256
         && data.emoji is string && data.emoji.size() <= 128
         && data.userId is string && data.userId == request.auth.uid
@@ -79,9 +80,8 @@ service cloud.firestore {
     // --- Collections ---
     match /message_reactions/{reactionId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn() && resource.data.messageId is string;
-      allow create: if isSignedIn() && isValidMessageReaction(incoming())
-                    && incoming().createdAt == request.time;
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidMessageReaction(incoming());
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
