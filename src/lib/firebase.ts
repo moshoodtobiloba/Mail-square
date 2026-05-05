@@ -6,7 +6,8 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+const databaseId = (firebaseConfig as any).firestoreDatabaseId === 'default' ? '(default)' : (firebaseConfig as any).firestoreDatabaseId;
+export const db = getFirestore(app, databaseId);
 export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({

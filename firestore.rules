@@ -8,8 +8,10 @@ service cloud.firestore {
     }
 
     // --- Core Primitives ---
-    function isSignedIn() { return request.auth != null; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    function isValidId(id) { return id is string && id.size() <= 128; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
@@ -66,29 +68,21 @@ service cloud.firestore {
     }
 
     function isValidMessageReaction(data) {
-      return data.keys().hasAll(['messageId', 'emoji', 'userId', 'userName', 'createdAt']) && data.keys().size() == 5
-        && data.messageId is string && data.messageId.size() <= 128
-        && data.emoji is string && data.emoji.size() <= 10
+      return data.keys().hasAll(['messageId', 'emoji', 'userId', 'userName', 'createdAt'])
+        && data.messageId is string && data.messageId.size() <= 256
+        && data.emoji is string && data.emoji.size() <= 128
         && data.userId is string && data.userId == request.auth.uid
-        && data.userName is string && data.userName.size() <= 100
+        && data.userName is string && data.userName.size() <= 512
         && data.createdAt is timestamp;
-    }
-
-    function isValidGmailToken(data) {
-      return data.keys().hasAll(['email', 'access_token', 'refresh_token', 'scope', 'token_type', 'expiry_date', 'updatedAt'])
-        && data.email is string
-        && data.access_token is string
-        && data.refresh_token is string;
     }
 
     // --- Collections ---
     match /message_reactions/{reactionId} {
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow get: if isSignedIn() && isValidId(reactionId) && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(reactionId)
-                    && isValidMessageReaction(incoming())
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.messageId is string;
+      allow create: if isSignedIn() && isValidMessageReaction(incoming())
                     && incoming().createdAt == request.time;
-      allow delete: if isSignedIn() && isValidId(reactionId) && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /users/{userId} {

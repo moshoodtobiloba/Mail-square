@@ -61,6 +61,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 
+const AVAILABLE_EMOJIS = ['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯', '🤩', '🎉', '🙌', '🤔', '👀', '🚀', '✨', '✅', '🌈', '🎂', '🥳', '🎈', '🤝', '💪', '🙏', '⚡'];
+
 export default function MailView() {
   const { user, signIn, logOut, loading: authLoading } = useAuth();
   
@@ -260,6 +262,7 @@ export default function MailView() {
       authInfo: {
         userId: user?.uid,
         email: user?.email,
+        emailVerified: (user as any)?.emailVerified,
       },
       operationType,
       path
@@ -296,7 +299,9 @@ export default function MailView() {
 
   // Management of reactions
   const toggleReaction = async (emoji: string) => {
-    if (!user || !selectedEmail) return;
+    if (!user || !selectedEmail) {
+      return;
+    }
 
     const existingReaction = reactions.find(r => r.emoji === emoji && r.userId === user.uid);
     const path = 'message_reactions';
@@ -309,11 +314,12 @@ export default function MailView() {
       }
     } else {
       try {
+        const userName = user.displayName || user.email?.split('@')[0] || 'User';
         await addDoc(collection(db, path), {
           messageId: selectedEmail.id,
           emoji,
           userId: user.uid,
-          userName: user.displayName || user.email || 'User',
+          userName: userName,
           createdAt: serverTimestamp()
         });
       } catch (err) {
@@ -2600,19 +2606,21 @@ export default function MailView() {
                       <Smile className="w-4 h-4" />
                     </button>
                     {showEmojiPicker && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex items-center gap-1 bg-white border border-gray-200 rounded-full shadow-lg px-2 py-1 z-50 animate-in fade-in zoom-in-95 duration-200">
-                         {['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯'].map(emoji => (
-                           <button 
-                             key={emoji}
-                             onClick={() => {
-                               toggleReaction(emoji);
-                               setShowEmojiPicker(false);
-                             }}
-                             className="hover:bg-gray-100 rounded-full p-2 cursor-pointer text-lg transition-colors"
-                           >
-                             {emoji}
-                           </button>
-                         ))}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white border border-gray-200 rounded-3xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-200 min-w-[280px]">
+                         <div className="grid grid-cols-6 gap-1">
+                           {AVAILABLE_EMOJIS.map(emoji => (
+                             <button 
+                               key={emoji}
+                               onClick={() => {
+                                 toggleReaction(emoji);
+                                 setShowEmojiPicker(false);
+                               }}
+                               className="hover:bg-gray-100 rounded-xl p-2 cursor-pointer text-xl transition-all hover:scale-125 active:scale-95"
+                             >
+                               {emoji}
+                             </button>
+                           ))}
+                         </div>
                       </div>
                     )}
                   </div>
