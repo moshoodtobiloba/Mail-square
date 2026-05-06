@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 
 // Initialize Firebase Admin
 let firestoreDatabaseId = "(default)";
-const firebaseConfigPath = path.join(__dirname, "firebase-applet-config.json");
+const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
 if (fs.existsSync(firebaseConfigPath)) {
   const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
   // Normalize "default" to "(default)" to avoid Firestore 5 NOT_FOUND errors
@@ -27,6 +27,9 @@ if (fs.existsSync(firebaseConfigPath)) {
 }
 
 const getDb = () => {
+  if (!admin.apps.length) {
+    throw new Error("Firebase Admin not initialized. Is firebase-applet-config.json missing or invalid?");
+  }
   return getFirestore();
 };
 
@@ -57,11 +60,26 @@ export async function createApp() {
 
   app.get("/api/health", async (req, res) => {
     try {
+      if (process.env.VERCEL || process.env.NETLIFY) {
+         return res.json({ status: "ok", environment: "serverless" });
+      }
+      
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 1000);
+      
       const response = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email", {
-        headers: { "Metadata-Flavor": "Google" }
-      });
-      const email = await response.text();
-      res.json({ status: "ok", identity: email });
+        headers: { "Metadata-Flavor": "Google" },
+        signal: controller.signal
+      }).catch(() => null);
+      
+      clearTimeout(id);
+      
+      if (response && response.ok) {
+        const email = await response.text();
+        res.json({ status: "ok", identity: email });
+      } else {
+        res.json({ status: "ok", identity: "local-or-unknown" });
+      }
     } catch (e) {
       res.json({ status: "ok", identity: "local-or-unknown" });
     }
@@ -396,9 +414,13 @@ export async function createApp() {
     }
   }
 
-  // Run every 60s
-  setInterval(processQueuedEmails, 60000);
-  console.log("[BackgroundProcessor] Initialized.");
+  // Run every 60s - Disabled in serverless environments
+  if (!process.env.VERCEL && !process.env.NETLIFY) {
+    setInterval(processQueuedEmails, 60000);
+    console.log("[BackgroundProcessor] Initialized.");
+  } else {
+    console.log("[BackgroundProcessor] Skipped (Serverless environment)");
+  }
 
   return app;
 }
@@ -408,7 +430,7 @@ async function startServer() {
   const PORT = 3000;
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production" && !process.env.NETLIFY) {
+  if (process.env.NODE_ENV !== "production" && !process.env.NETLIFY && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -416,7 +438,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, "dist");
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -429,4 +451,14 @@ async function startServer() {
   });
 }
 
-startServer();
+// We only call startServer if this file is run directly (not as a module)
+// or if we are in the AI Studio development environment.
+const isMain = process.argv[1] && (
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1]) ||
+  process.argv[1].endsWith('server.ts') ||
+  process.argv[1].endsWith('server')
+);
+
+if (isMain || process.env.AI_STUDIO) {
+  startServer();
+}

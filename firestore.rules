@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Basic root denial
+    // 0. Default Deny everything
     match /{document=**} {
       allow read, write: if false;
     }
@@ -11,14 +11,30 @@ service cloud.firestore {
       allow read: if true;
     }
 
-    // Comprehensive User rules
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User data is strictly isolated by userId
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Allow access to the user profile document
+      allow read, write: if isOwner(userId);
       
-      // Recursive match for any subcollections (leads, campaign_steps, etc.)
+      // Allow access to any subcollection at any depth
+      // This covers /users/{userId}/leads, /users/{userId}/leads/{leadId}, etc.
       match /{allPaths=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, write: if isOwner(userId);
       }
+    }
+
+    // Global collections (like message reactions or public profiles) would go here
+    match /message_reactions/{reactionId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
   }
 }
