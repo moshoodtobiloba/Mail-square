@@ -2,20 +2,89 @@ import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { useAuth } from '../../lib/AuthContext';
 import { AlertTriangle, Trash2, Bell, BellOff, CheckCircle2 } from 'lucide-react';
 import { useNotifications } from '../../hooks/useNotifications';
+import { useEffect, useState } from 'react';
+import { collection, query, onSnapshot, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 
 export default function SettingsView() {
   const [dailyLimit, setDailyLimit] = useLocalStorage('settings_daily_limit', 250);
   const [smartNames, setSmartNames] = useLocalStorage('settings_smart_names', true);
   const [strictHealth, setStrictHealth] = useLocalStorage('settings_strict_health', true);
   const [autoRouting, setAutoRouting] = useLocalStorage('settings_auto_routing', true);
-  const { logOut } = useAuth();
+  const { logOut, user } = useAuth();
   const { token, requestPermission, error: notificationError } = useNotifications();
   
   const handleWipeData = async () => {
-    if (window.confirm("Are you sure you want to delete all your account data? This action is irreversible.")) {
-       localStorage.clear();
-       await logOut();
-       window.location.reload();
+    if (!user) return;
+    if (window.confirm("Are you sure you want to delete all your account data? This action is irreversible. All leads, campaigns, and connected accounts will be permanently removed.")) {
+       try {
+         const collectionsToWipe = [
+           'leads',
+           'connected_inboxes',
+           'scheduled_emails',
+           'campaign_steps',
+           'email_templates',
+           'app_notifications',
+           'preferences',
+           'gmail_tokens',
+           'analysis'
+         ];
+
+         const batch = writeBatch(db);
+         let count = 0;
+
+         for (const colName of collectionsToWipe) {
+           const q = query(collection(db, 'users', user.uid, colName));
+           const snap = await getDocs(q);
+           snap.forEach(docSnap => {
+             batch.delete(docSnap.ref);
+             count++;
+           });
+         }
+
+         // Also delete the user document itself
+         batch.delete(doc(db, 'users', user.uid));
+
+         if (count > 0) {
+           await batch.commit();
+         }
+
+         localStorage.clear();
+         await logOut();
+         window.location.href = '/';
+       } catch (error) {
+         console.error("Error wiping data:", error);
+         alert("Failed to wipe data correctly. Please try again.");
+       }
+    }
+  };
+
+  const [inboxes, setInboxes] = useState<{email: string, health: number, status: string, name: string, photoURL?: string}[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'users', user.uid, 'connected_inboxes'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setInboxes(snap.docs.map(d => ({ email: d.id, ...d.data() } as any)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/connected_inboxes`));
+    return () => unsubscribe();
+  }, [user]);
+
+  const connectGmailAccount = async () => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/auth/url', {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, 'Connect Gmail', 'width=600,height=700');
+      }
+    } catch (e: any) {
+      console.error("Failed to get auth URL", e);
+      alert("Error connecting to auth server: " + e.message);
     }
   };
 
@@ -31,8 +100,6 @@ export default function SettingsView() {
 
   const [customName, setCustomName] = useLocalStorage('profile_custom_name', '');
   const [customPhoto, setCustomPhoto] = useLocalStorage('profile_custom_photo', '');
-  const [inboxes, setInboxes] = useLocalStorage<{email: string, health: number, status: string, name: string, photoURL?: string}[]>('connected_inboxes', []);
-  const { signIn } = useAuth();
 
   return (
     <div className="animate-in fade-in duration-500 max-w-3xl mx-auto space-y-8 pb-12">
@@ -53,7 +120,7 @@ export default function SettingsView() {
         <h3 className="text-lg font-medium border-b border-gray-100 pb-4 mb-6 flex items-center justify-between">
           Connected Gmail Accounts
           <button 
-            onClick={signIn}
+            onClick={connectGmailAccount}
             className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold uppercase tracking-wider transition-colors cursor-pointer"
           >
             Add Account
@@ -68,10 +135,10 @@ export default function SettingsView() {
                 <div key={i} className="flex items-center justify-between p-4 bg-white hover:bg-gray-50 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold overflow-hidden border border-blue-100 shrink-0">
-                      {acc.photoURL ? <img src={acc.photoURL} alt="" className="w-full h-full object-cover" /> : acc.name.charAt(0).toUpperCase()}
+                      {acc.photoURL ? <img src={acc.photoURL} alt="" className="w-full h-full object-cover" /> : (acc.name || acc.email || '?').charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">{acc.name}</p>
+                      <p className="text-sm font-semibold text-gray-900">{acc.name || acc.email}</p>
                       <p className="text-xs text-gray-500">{acc.email}</p>
                     </div>
                   </div>
@@ -85,9 +152,13 @@ export default function SettingsView() {
                       </div>
                     </div>
                     <button 
-                      onClick={() => {
-                        if (window.confirm(`Disconnect ${acc.email}?`)) {
-                          setInboxes((prev: any[]) => prev.filter((_, idx) => idx !== i));
+                      onClick={async () => {
+                        if (user && window.confirm(`Disconnect ${acc.email}?`)) {
+                          try {
+                            await deleteDoc(doc(db, 'users', user.uid, 'connected_inboxes', acc.email));
+                          } catch (err) {
+                            console.error("Failed to disconnect:", err);
+                          }
                         }
                       }}
                       className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"

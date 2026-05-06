@@ -24,8 +24,7 @@ export default function LeadsView() {
     if (!user) return;
     const path = `users/${user.uid}/leads`;
     const q = query(
-      collection(db, path),
-      where('userId', '==', user.uid)
+      collection(db, path)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));

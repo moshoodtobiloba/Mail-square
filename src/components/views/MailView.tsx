@@ -4,7 +4,7 @@ import {
   Menu, Search, Settings, HelpCircle, LayoutGrid, 
   Inbox, Star, Clock, Send, File, Archive, Trash2, 
   MoreVertical, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CornerUpLeft, 
-  CornerUpRight, Smile, Plus, X, Maximize2, Minimize2, Paperclip, CheckSquare, List, Tag, Users, Info, MessageSquare, AlertOctagon, Bookmark, Calendar, Send as SendIcon, Upload, Trash, Mail, Zap, Link as LinkIcon,
+  CornerUpRight, Smile, Plus, X, Maximize2, Minimize2, Paperclip, CheckSquare, List, Tag, Users, Info, MessageSquare, AlertOctagon, Bookmark, Calendar, Send as SendIcon, Upload, Trash, Mail, Zap, Link as LinkIcon, Target,
   Bold, Italic, Underline,
   Pause, Play, TrendingUp, Activity, BarChart3, CornerDownRight, CheckCircle2, AlertCircle, RefreshCw, Layers
 } from 'lucide-react';
@@ -178,8 +178,7 @@ export default function MailView() {
   useEffect(() => {
     if (!user) return;
     const path = `users/${user.uid}/leads`;
-    // Apply server-side filter for rules compliance
-    const q = query(collection(db, path), where('userId', '==', user.uid));
+    const q = query(collection(db, path));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setLeads(data);
@@ -202,8 +201,20 @@ export default function MailView() {
   }, [leads, leadSearchQuery]);
 
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
-  const [inboxes, setInboxes] = useLocalStorage<{email: string, health: number, status: string, name: string, photoURL?: string}[]>('connected_inboxes', []);
+  const [inboxes, setInboxes] = useState<{email: string, health: number, status: string, name: string, photoURL?: string}[]>([]);
   const [activeAccountIndex, setActiveAccountIndex] = useLocalStorage<number>('active_account_index', 0);
+  
+  // Sync Inboxes from Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(collection(db, 'users', user.uid, 'connected_inboxes'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setInboxes(snap.docs.map(d => ({ email: d.id, ...d.data() } as any)));
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/connected_inboxes`));
+    return () => unsubscribe();
+  }, [user]);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [lastCheckedMsgId, setLastCheckedMsgId] = useState<string | null>(null);
   const [notifications, setNotifications] = useLocalStorage<any[]>('app_notifications', []);
@@ -228,8 +239,7 @@ export default function MailView() {
     
     // Subscribe to Firestore collection
     const q = query(
-        collection(db, 'users', user.uid, 'scheduled_emails'),
-        where('status', 'in', ['Scheduled', 'Failed'])
+        collection(db, 'users', user.uid, 'scheduled_emails')
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -243,16 +253,57 @@ export default function MailView() {
     return () => unsubscribe();
   }, [user]);
 
-  const [autoSendConfig, setAutoSendConfig] = useLocalStorage('auto_send_config_v2', {
+  const [autoSendConfig, setAutoSendConfig] = useState({
     interval: '30',
     unit: 'seconds',
     customString: '30s',
     isActive: false,
     maxPerDay: '50',
     retryOnFailure: true,
-    respectUnsubscribe: true
+    respectUnsubscribe: true,
+    activeCampaignId: ''
   });
-  const [isAutoSendWorking, setIsAutoSendWorking] = useState(false);
+
+  // Sync Auto-Send Config from Firestore
+  useEffect(() => {
+    if (!user) return;
+    const q = doc(db, 'users', user.uid, 'preferences', 'auto_send');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.exists()) {
+        setAutoSendConfig(prev => ({ ...prev, ...snapshot.data() }));
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const updateAutoSendConfig = async (updates: Partial<typeof autoSendConfig>) => {
+    if (!user) return;
+    const newConfig = { ...autoSendConfig, ...updates };
+    setAutoSendConfig(newConfig); // Optimistic UI
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'preferences', 'auto_send'), {
+        ...newConfig,
+        userId: user.uid,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to save auto-send config:", err);
+    }
+  };
+
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'users', user.uid, 'campaign_steps'));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setCampaigns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const isAutoSendWorking = autoSendConfig.isActive;
+  const setIsAutoSendWorking = (val: boolean) => updateAutoSendConfig({ isActive: val });
+  
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
@@ -380,54 +431,11 @@ export default function MailView() {
     }
   };
 
-  // Manage connected inboxes list based on sign-ins
+  // Managed exclusively by Firestore sync now
   const lastUserEmail = useRef<string | null>(null);
   useEffect(() => {
     if (!user?.email || authLoading) return;
-
-    const email = user.email.toLowerCase();
-    
-    // We use a separate local variable to calculate the index against the MOST RECENT inboxes state
-    // but useEffect doesn't track inboxes changes to avoid loops.
-    // Instead, we handle everything inside the functional update of setInboxes.
-    
-    setInboxes(prevInboxes => {
-      const existingIndex = prevInboxes.findIndex(i => i.email.toLowerCase() === email);
-      
-      const inboxData = {
-        email: user.email!,
-        name: user.displayName || user.email!.split('@')[0] || 'My Account',
-        photoURL: user.photoURL || undefined,
-        health: existingIndex >= 0 ? prevInboxes[existingIndex].health : Math.floor(Math.random() * 10) + 85,
-        status: existingIndex >= 0 ? prevInboxes[existingIndex].status : 'Strong'
-      };
-
-      if (existingIndex >= 0) {
-        const currentEntry = prevInboxes[existingIndex];
-        // Sync local list if Google profile changed
-        if (currentEntry.name !== inboxData.name || currentEntry.photoURL !== inboxData.photoURL) {
-          const updated = [...prevInboxes];
-          updated[existingIndex] = { ...updated[existingIndex], ...inboxData };
-          return updated;
-        }
-        
-        // Even if entry didn't change, we might need to check if we should switch focus
-        if (lastUserEmail.current !== null && lastUserEmail.current !== email) {
-           // Fresh sign-in via popup for an EXISTING account - switch to it
-           setTimeout(() => setActiveAccountIndex(existingIndex), 0);
-        }
-        
-        return prevInboxes;
-      } else {
-        // Add new account
-        const newList = [...prevInboxes, inboxData];
-        // Switch focus to the newly added item
-        setTimeout(() => setActiveAccountIndex(newList.length - 1), 50);
-        return newList;
-      }
-    });
-    
-    lastUserEmail.current = email;
+    lastUserEmail.current = user.email.toLowerCase();
   }, [user?.email, authLoading]);
 
   // Inbox Health Auto-Healer - Improves strength score over time when active
@@ -1878,12 +1886,12 @@ export default function MailView() {
             <div className="p-8 max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-blue-200 rotate-3">
-                    <Zap className="w-8 h-8" />
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl rotate-3 transition-colors ${isAutoSendWorking ? 'bg-emerald-500 shadow-emerald-200' : 'bg-blue-600 shadow-blue-200'}`}>
+                    <Zap className={`w-8 h-8 ${isAutoSendWorking ? 'animate-pulse' : ''}`} />
                   </div>
                   <div>
                     <h2 className="text-3xl font-black text-gray-900 tracking-tight">Automation Engine</h2>
-                    <p className="text-gray-500 font-medium tracking-tight">Precision staggered delivery for lifetime sync.</p>
+                    <p className="text-gray-500 font-medium tracking-tight">System Identity: <span className="text-blue-600 font-bold">{user?.email || 'Global Relay'}</span></p>
                   </div>
                 </div>
                 <button 
@@ -1891,16 +1899,41 @@ export default function MailView() {
                   className={`px-8 py-3 rounded-2xl text-sm font-black flex items-center gap-2 transition-all shadow-lg active:scale-95 ${
                     isAutoSendWorking 
                     ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 shadow-amber-50' 
-                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-100'
                   }`}
                 >
                   {isAutoSendWorking ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
-                  {isAutoSendWorking ? 'PAUSE ENGINE' : 'SAVE & BEGIN SENDING'}
+                  {isAutoSendWorking ? 'SHUTDOWN SERVER' : 'START AUTO-SEND SERVER'}
                 </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="space-y-8">
+                  <div className="bg-white border-2 border-gray-100 p-8 rounded-[2rem] shadow-sm space-y-6 hover:border-blue-100 transition-colors group">
+                    <div className="flex items-center gap-3 text-gray-900 font-black uppercase tracking-widest text-xs">
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Target className="w-5 h-5" />
+                      </div>
+                      Active Campaign
+                    </div>
+                    
+                    <div className="space-y-4">
+                      <select 
+                        value={autoSendConfig.activeCampaignId}
+                        onChange={(e) => updateAutoSendConfig({ activeCampaignId: e.target.value })}
+                        className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-2xl text-lg font-black tracking-tighter outline-none transition-all"
+                      >
+                        <option value="">Select Outreach Sequence...</option>
+                        {campaigns.map((c: any) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-gray-400 font-medium px-2 italic">
+                        "The engine will progressively work through the leads assigned to this campaign."
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="bg-white border-2 border-gray-100 p-8 rounded-[2rem] shadow-sm space-y-6 hover:border-blue-100 transition-colors group">
                     <div className="flex items-center gap-3 text-gray-900 font-black uppercase tracking-widest text-xs">
                       <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1919,8 +1952,7 @@ export default function MailView() {
                             const num = val.match(/\d+/)?.[0] || '1';
                             const unit = val.toLowerCase().includes('m') ? 'minutes' : 
                                         val.toLowerCase().includes('h') ? 'hours' : 'seconds';
-                            setAutoSendConfig({ 
-                              ...autoSendConfig, 
+                            updateAutoSendConfig({ 
                               customString: val,
                               interval: num,
                               unit: unit
@@ -1943,7 +1975,7 @@ export default function MailView() {
                       <input 
                         type="number" 
                         value={autoSendConfig.maxPerDay}
-                        onChange={(e) => setAutoSendConfig({ ...autoSendConfig, maxPerDay: e.target.value })}
+                        onChange={(e) => updateAutoSendConfig({ maxPerDay: e.target.value })}
                         className="w-full px-5 py-4 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-2xl text-lg font-black tracking-tighter outline-none transition-all"
                         placeholder="50"
                       />

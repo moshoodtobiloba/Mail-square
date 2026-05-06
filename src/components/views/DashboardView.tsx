@@ -1,10 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Activity, Mail, Users, MousePointer2, GitMerge, TrendingUp, ShieldCheck, Zap, ArrowUpRight, BarChart3 } from 'lucide-react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { motion } from 'motion/react';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 
 export default function DashboardView() {
   const { user } = useAuth();
@@ -15,13 +16,21 @@ export default function DashboardView() {
   useEffect(() => {
     if (!user) return;
     
-    const leadsQ = query(collection(db, 'users', user.uid, 'leads'), where('userId', '==', user.uid));
-    const inboxesQ = query(collection(db, 'users', user.uid, 'connected_inboxes'), where('userId', '==', user.uid));
-    const scheduledQ = query(collection(db, 'users', user.uid, 'scheduled_emails'), where('userId', '==', user.uid));
+    const leadsQ = query(collection(db, 'users', user.uid, 'leads'));
+    const inboxesQ = query(collection(db, 'users', user.uid, 'connected_inboxes'));
+    const scheduledQ = query(collection(db, 'users', user.uid, 'scheduled_emails'));
 
-    const unsubLeads = onSnapshot(leadsQ, (snap) => setLeads(snap.docs.map(d => d.data())));
-    const unsubInboxes = onSnapshot(inboxesQ, (snap) => setInboxes(snap.docs.map(d => d.data())));
-    const unsubScheduled = onSnapshot(scheduledQ, (snap) => setScheduledEmails(snap.docs.map(d => d.data())));
+    const unsubLeads = onSnapshot(leadsQ, (snap) => {
+      setLeads(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/leads`));
+    
+    const unsubInboxes = onSnapshot(inboxesQ, (snap) => {
+      setInboxes(snap.docs.map(d => ({ email: d.id, ...d.data() })));
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/connected_inboxes`));
+    
+    const unsubScheduled = onSnapshot(scheduledQ, (snap) => {
+      setScheduledEmails(snap.docs.map(d => d.data()));
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/scheduled_emails`));
 
     return () => {
       unsubLeads();
@@ -50,7 +59,7 @@ export default function DashboardView() {
     { label: 'Intelligence Pulse', value: leads.length > 0 ? (leads.length * 0.15).toFixed(1) : '0', sub: 'Projected Reply Rate', icon: Zap, trend: leads.length > 0 ? '+5.2%' : '0%', color: 'text-blue-600' },
     { label: 'Relay Nodes', value: inboxes.length.toString(), sub: 'Connected Inboxes', icon: Mail, trend: 'Verified', color: 'text-emerald-600' },
     { label: 'Pipeline Drafts', value: scheduledEmails.length.toString(), sub: 'Queued Payloads', icon: GitMerge, trend: scheduledEmails.length > 0 ? `+${scheduledEmails.length}` : 'Idle', color: 'text-amber-500' },
-    { label: 'Global Health', value: inboxes.length > 0 ? `${Math.round(inboxes.reduce((acc, curr) => acc + curr.health, 0) / inboxes.length)}%` : '---', sub: 'Reputation Score', icon: ShieldCheck, trend: inboxes.length > 0 ? 'Optimal' : 'Checking', color: 'text-blue-500' },
+    { label: 'Global Health', value: inboxes.length > 0 ? `${Math.round(inboxes.reduce((acc, curr) => acc + (curr.health || 0), 0) / inboxes.length)}%` : '---', sub: 'Reputation Score', icon: ShieldCheck, trend: inboxes.length > 0 ? 'Optimal' : 'Checking', color: 'text-blue-500' },
   ];
 
   const [activity, setActivity] = useState<any[]>([]);

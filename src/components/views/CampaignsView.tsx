@@ -3,6 +3,7 @@ import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical, File, Calendar, 
 import { collection, query, where, onSnapshot, doc, setDoc, addDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 import { Logo } from '../ui/Logo';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -15,17 +16,17 @@ export default function CampaignsView() {
 
   useEffect(() => {
     if (!user) return;
-    const stepsQ = query(collection(db, 'users', user.uid, 'campaign_steps'), where('userId', '==', user.uid));
+    const stepsQ = query(collection(db, 'users', user.uid, 'campaign_steps'));
     const unsubSteps = onSnapshot(stepsQ, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setSteps(data);
       if (data.length > 0 && !activeStep) setActiveStep(data[0].id);
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/campaign_steps`));
 
-    const templatesQ = query(collection(db, 'users', user.uid, 'email_templates'), where('userId', '==', user.uid));
+    const templatesQ = query(collection(db, 'users', user.uid, 'email_templates'));
     const unsubTemplates = onSnapshot(templatesQ, (snap) => {
       setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/email_templates`));
 
     return () => {
       unsubSteps();
@@ -35,9 +36,23 @@ export default function CampaignsView() {
 
   const rawStep = (steps.find((s: any) => s.id === activeStep) || steps[0] || {}) as any;
   const currentStep: any = {
+    content: '',
+    subject: '',
+    name: 'New Step',
     ...rawStep,
-    schedule: rawStep.schedule || { days: [], times: [], recurring: false },
-    analytics: rawStep.analytics || { sent: 0, opened: 0, replied: 0, bounced: 0 },
+    schedule: {
+      days: [],
+      times: [],
+      recurring: false,
+      ...(rawStep.schedule || {})
+    },
+    analytics: {
+      sent: 0,
+      opened: 0,
+      replied: 0,
+      bounced: 0,
+      ...(rawStep.analytics || {})
+    },
     status: rawStep.status || 'Scheduled'
   };
 
@@ -155,12 +170,12 @@ export default function CampaignsView() {
 
   const sequenceStrength = useMemo(() => {
     let score = 20;
-    if (currentStep.content.includes('{First Name}')) score += 30;
-    if (currentStep.content.length > 100) score += 20;
-    if (currentStep.subject.length > 5) score += 15;
-    if (currentStep.schedule.days.length >= 5) score += 15;
+    if (currentStep.content && currentStep.content.includes('{First Name}')) score += 30;
+    if (currentStep.content && currentStep.content.length > 100) score += 20;
+    if (currentStep.subject && currentStep.subject.length > 5) score += 15;
+    if (currentStep.schedule && currentStep.schedule.days && currentStep.schedule.days.length >= 5) score += 15;
     return score;
-  }, [currentStep.content, currentStep.subject, currentStep.schedule.days]);
+  }, [currentStep.content, currentStep.subject, currentStep.schedule]);
 
   const getPreviewContent = () => {
     let content = currentStep.content;
@@ -295,7 +310,7 @@ export default function CampaignsView() {
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Friendly Step Name</label>
                       <input 
                         type="text" 
-                        value={currentStep.name}
+                        value={currentStep.name || ''}
                         onChange={e => updateCurrentStep('name', e.target.value)}
                         className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-[1.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:bg-white focus:border-blue-100 transition-all" 
                       />
@@ -305,7 +320,7 @@ export default function CampaignsView() {
                        <select 
                         onChange={e => loadTemplate(e.target.value)}
                         className="w-full px-6 py-4 bg-gray-50 border border-transparent rounded-[1.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:bg-white focus:border-blue-100 transition-all cursor-pointer appearance-none"
-                        defaultValue=""
+                        value=""
                       >
                         <option value="" disabled>Load existing logic...</option>
                         {templates.map(t => (
@@ -324,7 +339,7 @@ export default function CampaignsView() {
                         <input 
                           type="checkbox" 
                           className="hidden"
-                          checked={currentStep.schedule.recurring}
+                          checked={currentStep.schedule.recurring || false}
                           onChange={e => updateSchedule('recurring', e.target.checked)}
                         />
                         <div className={`w-10 h-5 rounded-full p-1 transition-colors ${currentStep.schedule.recurring ? 'bg-blue-600' : 'bg-gray-200'}`}>
@@ -339,14 +354,14 @@ export default function CampaignsView() {
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Transmission Windows (Days)</p>
                         <div className="flex flex-wrap gap-2">
                           {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
-                            const isSelected = currentStep.schedule.days.includes(day);
+                            const isSelected = (currentStep.schedule.days || []).includes(day);
                             return (
                               <button 
                                 key={day}
                                 onClick={() => {
                                   const next = isSelected 
                                     ? currentStep.schedule.days.filter((d: string) => d !== day)
-                                    : [...currentStep.schedule.days, day];
+                                    : [...(currentStep.schedule.days || []), day];
                                   updateSchedule('days', next);
                                 }}
                                 className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-tighter transition-all shadow-sm ${
@@ -366,7 +381,7 @@ export default function CampaignsView() {
                           <button 
                             onClick={() => {
                               const time = prompt("Enter time (HH:MM):", "09:00");
-                              if (time) updateSchedule('times', [...currentStep.schedule.times, time]);
+                              if (time) updateSchedule('times', [...(currentStep.schedule.times || []), time]);
                             }}
                             className="text-[10px] font-black text-blue-600 uppercase hover:underline underline-offset-4 tracking-widest"
                           >
@@ -374,11 +389,11 @@ export default function CampaignsView() {
                           </button>
                         </div>
                         <div className="flex flex-wrap gap-3">
-                          {currentStep.schedule.times.map((time: string, idx: number) => (
+                          {(currentStep.schedule.times || []).map((time: string, idx: number) => (
                             <div key={idx} className="flex items-center gap-3 px-4 py-2 bg-white border border-blue-100 rounded-xl text-[10px] font-black text-gray-700 shadow-sm group">
                               {time}
                               <button 
-                                onClick={() => updateSchedule('times', currentStep.schedule.times.filter((_: any, i: number) => i !== idx))}
+                                onClick={() => updateSchedule('times', (currentStep.schedule.times || []).filter((_: any, i: number) => i !== idx))}
                                 className="text-gray-300 hover:text-red-500 transition-colors"
                               >
                                 <X className="w-3.5 h-3.5" />
@@ -394,7 +409,7 @@ export default function CampaignsView() {
                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Email Subject Header</label>
                    <input 
                      type="text" 
-                     value={currentStep.subject}
+                     value={currentStep.subject || ''}
                      onChange={e => updateCurrentStep('subject', e.target.value)}
                      className="w-full px-6 py-5 bg-white border-2 border-gray-100 rounded-[2rem] font-black text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:border-blue-200 transition-all placeholder:text-gray-300" 
                      placeholder="Connecting with..."
@@ -414,7 +429,7 @@ export default function CampaignsView() {
                      <textarea 
                        id="step-content"
                        className="w-full min-h-[400px] px-8 py-8 bg-white border-2 border-gray-100 rounded-[2.5rem] font-bold text-gray-900 focus:outline-none focus:ring-4 focus:ring-blue-50/50 focus:border-blue-200 resize-none transition-all leading-relaxed"
-                       value={currentStep.content}
+                       value={currentStep.content || ''}
                        onChange={e => updateCurrentStep('content', e.target.value)}
                        placeholder="Draft your outreach intelligence here..."
                      />

@@ -130,11 +130,27 @@ export async function createApp() {
 
       // Store tokens in Firestore
       try {
-        await getDb().collection("users").doc(uid as string).collection("gmail_tokens").doc(email).set({
+        const db = getDb();
+        const userRef = db.collection("users").doc(uid as string);
+        
+        // 1. Store secure tokens
+        await userRef.collection("gmail_tokens").doc(email).set({
           ...tokens,
           email,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        // 2. Store UI metadata for visibility in all tabs
+        await userRef.collection("connected_inboxes").doc(email).set({
+          email,
+          name: payload?.name || email.split('@')[0],
+          photoURL: payload?.picture || "",
+          status: 'Strong',
+          health: 100,
+          userId: uid,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
       } catch (firestoreErr: any) {
         console.error("Firestore Save Error (Fatal):", firestoreErr.message);
         return res.status(500).send(`
@@ -166,6 +182,41 @@ export async function createApp() {
     } catch (error) {
       console.error("OAuth Callback Error:", error);
       res.status(500).send("Authentication failed");
+    }
+  });
+
+  // Sync Inboxes (Internal utility for migration/sync)
+  app.get("/api/inboxes/sync", verifyUser, async (req: any, res) => {
+    const uid = req.user.uid;
+    const db = getDb();
+    const userRef = db.collection("users").doc(uid);
+
+    try {
+      const tokensSnap = await userRef.collection("gmail_tokens").get();
+      const inboxesSnap = await userRef.collection("connected_inboxes").get();
+      
+      const existingEmails = new Set(inboxesSnap.docs.map(d => d.id));
+      const tokens = tokensSnap.docs.map(d => d.id);
+      
+      let syncCount = 0;
+      for (const email of tokens) {
+        if (!existingEmails.has(email)) {
+          await userRef.collection("connected_inboxes").doc(email).set({
+            email,
+            name: email.split('@')[0],
+            status: 'Strong',
+            health: 95,
+            userId: uid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          syncCount++;
+        }
+      }
+      
+      res.json({ success: true, synced: syncCount, total: tokens.length });
+    } catch (e: any) {
+      console.error("Sync Error:", e);
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -228,13 +279,15 @@ export async function createApp() {
 
   // Autonomous Email Processor (Runs in background)
   async function processQueuedEmails() {
-    console.log("[BackgroundProcessor] Checking for scheduled emails...");
+    console.log("[BackgroundProcessor] Checking for work...");
     try {
       const db = getDb();
       const usersSnap = await db.collection("users").listDocuments();
       
       for (const userDoc of usersSnap) {
         const uid = userDoc.id;
+        
+        // 1. Process Manual Scheduled Emails
         const scheduledSnap = await userDoc.collection("scheduled_emails")
           .where("status", "==", "Scheduled")
           .where("scheduledAt", "<=", Date.now())
@@ -242,64 +295,104 @@ export async function createApp() {
 
         for (const emailDoc of scheduledSnap.docs) {
           const email = emailDoc.data();
-          console.log(`[BackgroundProcessor] Processing email for ${uid}: ${email.to}`);
+          await sendEmail(uid, emailDoc, email, userDoc);
+        }
+
+        // 2. Process Auto-Send Sequence (Outreach)
+        const autoSendDoc = await userDoc.collection("preferences").doc("auto_send").get();
+        if (autoSendDoc.exists && autoSendDoc.data()?.isActive) {
+          const config = autoSendDoc.data()!;
+          const campaignId = config.activeCampaignId;
           
-          try {
-            // Get user tokens
-            const tokenDoc = await userDoc.collection("gmail_tokens").doc(email.account.toLowerCase()).get();
-            if (!tokenDoc.exists) {
-              console.warn(`[BackgroundProcessor] No tokens for ${email.account}`);
-              await emailDoc.ref.update({ status: 'Failed' });
-              continue;
-            }
-
-            const tokens = tokenDoc.data()!;
-            const client = getOAuthClient();
-            client.setCredentials(tokens);
-
-            // Send Email
-            const utf8Subject = `=?utf-8?B?${Buffer.from(email.subject).toString('base64')}?=`;
-            const rawMessage = [
-              `To: ${email.to}`,
-              `Subject: ${utf8Subject}`,
-              'Content-Type: text/html; charset="UTF-8"',
-              'MIME-Version: 1.0',
-              '',
-              email.body.replace(/\n/g, '<br/>')
-            ].join('\r\n');
-
-            const encodedMessage = Buffer.from(rawMessage).toString('base64')
-              .replace(/\+/g, '-')
-              .replace(/\//g, '_')
-              .replace(/=+$/, '');
-
-            await client.request({
-              url: `https://www.googleapis.com/gmail/v1/users/me/messages/send`,
-              method: 'POST',
-              data: { raw: encodedMessage }
-            });
-
-            // Update lead status to 'contacted' if they are in the database
-            const leadsSnap = await userDoc.collection("leads")
-              .where("email", "==", email.to.toLowerCase())
-              .get();
+          if (campaignId) {
+            console.log(`[BackgroundProcessor] Auto-Send is ACTIVE for ${uid} on campaign ${campaignId}`);
             
-            if (!leadsSnap.empty) {
-              await leadsSnap.docs[0].ref.update({ status: 'contacted' });
-              console.log(`[BackgroundProcessor] Updated lead status for ${email.to}`);
-            }
+            // Get the first campaign step
+            const campaignStepDoc = await userDoc.collection("campaign_steps").doc(campaignId).get();
+            if (campaignStepDoc.exists) {
+              const step = campaignStepDoc.data()!;
+              
+              // Find untracked leads (status 'new' or missing)
+              const leadsSnap = await userDoc.collection("leads")
+                .where("status", "in", ["new", ""] )
+                .limit(5) // Process in small batches
+                .get();
 
-            // Update/Delete
-            await emailDoc.ref.delete();
-            console.log(`[BackgroundProcessor] Sent successfully to ${email.to}`);
-          } catch (err: any) {
-            console.error(`[BackgroundProcessor] Error sending ${emailDoc.id}:`, err.message);
-            await emailDoc.ref.update({ status: 'Failed' });
+              for (const leadDoc of leadsSnap.docs) {
+                const lead = leadDoc.data();
+                
+                // Get tokens for a connected inbox (fallback to first available)
+                const tokensSnap = await userDoc.collection("gmail_tokens").limit(1).get();
+                if (tokensSnap.empty) continue;
+                
+                const tokens = tokensSnap.docs[0].data();
+                const emailAccount = tokens.email;
+
+                const personalizedSubject = step.subject.replace(/{FirstName}/g, lead.firstName || '').replace(/{LastName}/g, lead.lastName || '').replace(/{Company}/g, lead.company || 'your company');
+                const personalizedBody = step.content.replace(/{FirstName}/g, lead.firstName || '').replace(/{LastName}/g, lead.lastName || '').replace(/{Company}/g, lead.company || 'your company');
+
+                const success = await dispatchEmail(uid, emailAccount, lead.email, personalizedSubject, personalizedBody, tokens);
+                if (success) {
+                  await leadDoc.ref.update({ status: 'contacted', contactedAt: admin.firestore.FieldValue.serverTimestamp() });
+                }
+              }
+            }
           }
         }
       }
     } catch (err) {
       console.error("[BackgroundProcessor] Loop error:", err);
+    }
+  }
+
+  async function sendEmail(uid: string, emailDoc: any, email: any, userDoc: any) {
+    try {
+      console.log(`[BackgroundProcessor] Dispatching manual email for ${uid}: ${email.to}`);
+      const tokenDoc = await userDoc.collection("gmail_tokens").doc(email.account.toLowerCase()).get();
+      if (!tokenDoc.exists) {
+        await emailDoc.ref.update({ status: 'Failed' });
+        return;
+      }
+      const success = await dispatchEmail(uid, email.account, email.to, email.subject, email.body, tokenDoc.data()!);
+      if (success) {
+        await emailDoc.ref.delete();
+      } else {
+        await emailDoc.ref.update({ status: 'Failed' });
+      }
+    } catch (err) {
+      console.error(`[BackgroundProcessor] Manual Send Error:`, err);
+    }
+  }
+
+  async function dispatchEmail(uid: string, account: string, to: string, subject: string, body: string, tokens: any) {
+    try {
+      const client = getOAuthClient();
+      client.setCredentials(tokens);
+
+      const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+      const rawMessage = [
+        `To: ${to}`,
+        `Subject: ${utf8Subject}`,
+        'Content-Type: text/html; charset="UTF-8"',
+        'MIME-Version: 1.0',
+        '',
+        body.replace(/\n/g, '<br/>')
+      ].join('\r\n');
+
+      const encodedMessage = Buffer.from(rawMessage).toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await client.request({
+        url: `https://www.googleapis.com/gmail/v1/users/me/messages/send`,
+        method: 'POST',
+        data: { raw: encodedMessage }
+      });
+      return true;
+    } catch (err: any) {
+      console.error(`[BackgroundProcessor] Dispatch failed for ${to}:`, err.message);
+      return false;
     }
   }
 

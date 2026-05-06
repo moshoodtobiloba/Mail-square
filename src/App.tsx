@@ -27,6 +27,22 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Trigger backend sync to ensure all gmail_tokens have connected_inbox metadata
+  useEffect(() => {
+    if (!user) return;
+    const sync = async () => {
+      try {
+        const idToken = await user.getIdToken();
+        await fetch('/api/inboxes/sync', {
+          headers: { Authorization: `Bearer ${idToken}` }
+        });
+      } catch (e) {
+        console.error("Sync failed", e);
+      }
+    };
+    sync();
+  }, [user]);
+
   // Test Firestore connection on boot as per constraints
   useEffect(() => {
     const testConnection = async () => {

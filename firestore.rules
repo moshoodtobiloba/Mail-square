@@ -1,187 +1,23 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Safety Net
+    // Basic root denial
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // --- Core Primitives ---
-    function isSignedIn() { 
-      return request.auth != null; 
-    }
-    function isValidId(id) { return id is string && id.size() <= 128; }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-
-    // --- Validation Blueprints ---
-    function isValidUser(data) {
-      return data.keys().hasAll(['email', 'name', 'createdAt']) && data.keys().size() == 3
-        && data.email is string && data.email.size() <= 200
-        && data.name is string && data.name.size() <= 100
-        && data.createdAt is timestamp;
-    }
-
-    function isValidPreferences(data) {
-      return data.keys().hasAll(['dailyLimit', 'smartNames', 'strictHealth', 'autoRouting', 'userId']) && data.keys().size() == 5
-        && data.dailyLimit is number
-        && data.smartNames is bool
-        && data.strictHealth is bool
-        && data.autoRouting is bool
-        && data.userId is string && data.userId == request.auth.uid;
-    }
-
-    function isValidConnectedInbox(data) {
-      return data.keys().hasAll(['email', 'name', 'health', 'status', 'userId']) && data.keys().size() == 5
-        && data.email is string && data.email.size() <= 200
-        && data.name is string && data.name.size() <= 100
-        && data.health is number && data.health >= 0 && data.health <= 100
-        && data.status is string && data.status.size() <= 50
-        && data.userId is string && data.userId == request.auth.uid;
-    }
-
-    function isValidLead(data) {
-      return data.email is string && data.email.size() <= 200
-        && data.firstName is string && data.firstName.size() <= 100
-        && data.lastName is string && data.lastName.size() <= 100
-        && data.userId is string && data.userId == request.auth.uid
-        && data.tags is list && data.tags.size() <= 50
-        && data.score is number
-        && data.status is string && data.status.size() <= 50
-        && data.signals is map && data.signals.keys().hasAll(['opens', 'replies', 'clicks']);
-    }
-
-    function isValidCampaignStep(data) {
-      return data.name is string && data.name.size() <= 150
-        && data.delay is string && data.delay.size() <= 100
-        && data.subject is string && data.subject.size() <= 200
-        && data.content is string && data.content.size() <= 10000
-        && data.userId is string && data.userId == request.auth.uid
-        && data.status is string
-        && data.schedule is map
-        && data.analytics is map;
-    }
-
-    function isValidAppNotification(data) {
-      return data.keys().hasAll(['title', 'desc', 'type', 'link', 'userId']) && data.keys().size() == 5
-        && data.title is string && data.title.size() <= 150
-        && data.desc is string && data.desc.size() <= 500
-        && data.type is string && data.type.size() <= 50
-        && data.link is string && data.link.size() <= 150
-        && data.userId is string && data.userId == request.auth.uid;
-    }
-
-    function isValidMessageReaction(data) {
-      return data.keys().hasAll(['messageId', 'emoji', 'userId', 'userName', 'createdAt'])
-        && data.keys().size() == 5
-        && data.messageId is string && data.messageId.size() <= 256
-        && data.emoji is string && data.emoji.size() <= 128
-        && data.userId is string && data.userId == request.auth.uid
-        && data.userName is string && data.userName.size() <= 512
-        && data.createdAt is timestamp;
-    }
-
-    function isValidScheduledEmail(data) {
-      return data.keys().hasAll(['to', 'subject', 'body', 'scheduledAt', 'status', 'account', 'createdAt'])
-        && data.keys().size() == 7
-        && data.to is string && data.to.size() <= 256
-        && data.subject is string && data.subject.size() <= 512
-        && data.body is string && data.body.size() <= 20000
-        && data.scheduledAt is number
-        && data.status is string && data.status.size() <= 50
-        && data.account is string && data.account.size() <= 256
-        && data.createdAt is timestamp;
-    }
-
-    // --- Collections ---
+    // Health check
     match /test/connection {
-      allow get: if true;
+      allow read: if true;
     }
 
-    match /message_reactions/{reactionId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn() && resource.data.messageId is string;
-      allow create: if isSignedIn() && isValidMessageReaction(incoming());
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
-    }
-
+    // Comprehensive User rules
     match /users/{userId} {
-      allow get: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
-                    && isValidUser(incoming())
-                    && incoming().createdAt == request.time;
-      allow update: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
-                    && isValidUser(incoming())
-                    && incoming().createdAt == existing().createdAt
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email']);
+      allow read, write: if request.auth != null && request.auth.uid == userId;
       
-      match /preferences/{preferenceId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && isValidId(preferenceId) && request.auth.uid == userId
-                      && isValidPreferences(incoming())
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow update: if isSignedIn() && isValidId(preferenceId) && request.auth.uid == userId
-                      && isValidPreferences(incoming())
-                      && incoming().userId == existing().userId
-                      && incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'smartNames', 'strictHealth', 'autoRouting']);
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /connected_inboxes/{inboxId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && isValidId(inboxId) && request.auth.uid == userId
-                      && isValidConnectedInbox(incoming())
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /leads/{leadId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
-        allow create: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
-                      && isValidLead(incoming()) && incoming().keys().size() == 8
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow update: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
-                      && (incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'score', 'status', 'signals']));
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /campaign_steps/{stepId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
-        allow create: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
-                      && isValidCampaignStep(incoming()) && incoming().keys().size() == 8
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow update: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
-                      && (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'delay', 'subject', 'content', 'status', 'schedule', 'analytics']));
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /app_notifications/{notificationId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && isValidId(notificationId) && request.auth.uid == userId
-                      && isValidAppNotification(incoming())
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /gmail_tokens/{tokenId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow write: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /scheduled_emails/{emailId} {
-        allow get: if isSignedIn() && request.auth.uid == userId;
-        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
-        allow create: if isSignedIn() && isValidId(emailId) && request.auth.uid == userId
-                      && isValidScheduledEmail(incoming())
-                      && exists(/databases/$(database)/documents/users/$(userId));
-        allow update: if isSignedIn() && isValidId(emailId) && request.auth.uid == userId;
-        allow delete: if isSignedIn() && request.auth.uid == userId;
+      // Recursive match for any subcollections (leads, campaign_steps, etc.)
+      match /{allPaths=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
   }

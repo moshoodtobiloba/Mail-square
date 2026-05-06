@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Mail, Zap, ShieldAlert, Plus, CheckCircle2, Clock } from 'lucide-react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 
 export default function InboxesView() {
   const { signIn, user } = useAuth();
@@ -13,13 +14,12 @@ export default function InboxesView() {
   useEffect(() => {
     if (!user) return;
     const q = query(
-      collection(db, 'users', user.uid, 'connected_inboxes'),
-      where('userId', '==', user.uid)
+      collection(db, 'users', user.uid, 'connected_inboxes')
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as any);
+      const data = snapshot.docs.map(doc => ({ email: doc.id, ...doc.data() } as any));
       setInboxes(data);
-    });
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/connected_inboxes`));
     return () => unsubscribe();
   }, [user]);
 
@@ -81,6 +81,26 @@ export default function InboxesView() {
     };
   }) : [];
 
+  const connectGmailAccount = async () => {
+    if (!user) {
+      signIn();
+      return;
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/auth/url', {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, 'Connect Gmail', 'width=600,height=700');
+      }
+    } catch (e: any) {
+      console.error("Failed to get auth URL", e);
+      alert("Error connecting to auth server: " + e.message);
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
       {/* ... header remains same ... */}
@@ -90,7 +110,7 @@ export default function InboxesView() {
           <p className="text-gray-500 mt-1">Manage your Gmails, check strength, and automate warmup.</p>
         </div>
         <button 
-          onClick={() => signIn()}
+          onClick={connectGmailAccount}
           className="px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-full text-sm font-medium hover:bg-blue-700 flex items-center gap-2 shadow-sm transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Link New Gmail
@@ -180,7 +200,7 @@ export default function InboxesView() {
         ))}
 
         <button 
-          onClick={() => signIn()}
+          onClick={connectGmailAccount}
           className="utility-card border-dashed border-2 border-gray-200 p-6 flex flex-col items-center justify-center text-center hover:border-gray-300 hover:bg-gray-50 transition-colors group min-h-[260px] cursor-pointer"
         >
           <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:bg-blue-100 transition-colors mb-4">
