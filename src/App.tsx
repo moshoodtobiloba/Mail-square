@@ -15,13 +15,32 @@ import { useAuth } from './lib/AuthContext.tsx';
 import { SplashScreen } from './components/ui/SplashScreen.tsx';
 import { Logo, LogoText } from './components/ui/Logo.tsx';
 import { ErrorBoundary } from './components/ui/ErrorBoundary.tsx';
+import { getDocFromServer, doc } from 'firebase/firestore';
+import { db } from './lib/firebase';
+import { useNotifications } from './hooks/useNotifications';
+import { NotificationToast } from './components/ui/NotificationToast';
 
 export default function App() {
   const { user, loading, logOut } = useAuth();
-  const [notifications, setNotifications] = useLocalStorage('app_notifications', [] as any[]);
+  const { notifications, addNotification, clearNotifications } = useNotifications();
   const [showSplash, setShowSplash] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Test Firestore connection on boot as per constraints
+  useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+        console.log("Firestore connection verified.");
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration or internet connection.");
+        }
+      }
+    };
+    testConnection();
+  }, []);
 
   // Map routes to tab IDs for UI highlighting
   const activeTab = useMemo(() => {
@@ -74,21 +93,6 @@ export default function App() {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileProfileOpen, setIsMobileProfileOpen] = useState(false);
-
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  useEffect(() => {
-    if (notifications.length > 0) {
-      const last = notifications[notifications.length - 1];
-      if (document.hidden && Notification.permission === "granted") {
-        new Notification(last.title, { body: last.desc });
-      }
-    }
-  }, [notifications]);
 
   useEffect(() => {
     const handleNavigate = (e: any) => {
@@ -268,6 +272,8 @@ export default function App() {
                       )}
                     </button>
                     
+                    <NotificationToast notifications={notifications} />
+                    
                     {/* Mobile Profile Trigger */}
                     <div className="lg:hidden relative">
                       <button 
@@ -385,7 +391,7 @@ export default function App() {
                      >
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-white">
                            <h3 className="font-black text-gray-900 text-xs uppercase tracking-widest">Global Intelligence Feed</h3>
-                           <button onClick={() => setNotifications([])} className="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase tracking-wider underline">Clear Feed</button>
+                           <button onClick={() => clearNotifications()} className="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase tracking-wider underline">Clear Feed</button>
                         </div>
                         <div className="max-h-[60vh] overflow-y-auto divide-y divide-gray-50 bg-white">
                            {notifications.length === 0 ? (

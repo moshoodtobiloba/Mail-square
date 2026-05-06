@@ -42,23 +42,25 @@ service cloud.firestore {
     }
 
     function isValidLead(data) {
-      return data.keys().hasAll(['email', 'firstName', 'lastName', 'userId', 'tags', 'score', 'status']) && data.keys().size() == 7
-        && data.email is string && data.email.size() <= 200
+      return data.email is string && data.email.size() <= 200
         && data.firstName is string && data.firstName.size() <= 100
         && data.lastName is string && data.lastName.size() <= 100
         && data.userId is string && data.userId == request.auth.uid
         && data.tags is list && data.tags.size() <= 50
         && data.score is number
-        && data.status is string && data.status.size() <= 50;
+        && data.status is string && data.status.size() <= 50
+        && data.signals is map && data.signals.keys().hasAll(['opens', 'replies', 'clicks']);
     }
 
     function isValidCampaignStep(data) {
-      return data.keys().hasAll(['name', 'delay', 'subject', 'content', 'userId']) && data.keys().size() == 5
-        && data.name is string && data.name.size() <= 150
+      return data.name is string && data.name.size() <= 150
         && data.delay is string && data.delay.size() <= 100
         && data.subject is string && data.subject.size() <= 200
         && data.content is string && data.content.size() <= 10000
-        && data.userId is string && data.userId == request.auth.uid;
+        && data.userId is string && data.userId == request.auth.uid
+        && data.status is string
+        && data.schedule is map
+        && data.analytics is map;
     }
 
     function isValidAppNotification(data) {
@@ -80,16 +82,32 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function isValidScheduledEmail(data) {
+      return data.keys().hasAll(['to', 'subject', 'body', 'scheduledAt', 'status', 'account', 'createdAt'])
+        && data.keys().size() == 7
+        && data.to is string && data.to.size() <= 256
+        && data.subject is string && data.subject.size() <= 512
+        && data.body is string && data.body.size() <= 20000
+        && data.scheduledAt is number
+        && data.status is string && data.status.size() <= 50
+        && data.account is string && data.account.size() <= 256
+        && data.createdAt is timestamp;
+    }
+
     // --- Collections ---
+    match /test/connection {
+      allow get: if true;
+    }
+
     match /message_reactions/{reactionId} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow list: if isSignedIn() && resource.data.messageId is string;
       allow create: if isSignedIn() && isValidMessageReaction(incoming());
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow get: if isSignedIn() && request.auth.uid == userId;
       allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId
                     && isValidUser(incoming())
                     && incoming().createdAt == request.time;
@@ -99,7 +117,8 @@ service cloud.firestore {
                     && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email']);
       
       match /preferences/{preferenceId} {
-        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn() && isValidId(preferenceId) && request.auth.uid == userId
                       && isValidPreferences(incoming())
                       && exists(/databases/$(database)/documents/users/$(userId));
@@ -111,7 +130,8 @@ service cloud.firestore {
       }
 
       match /connected_inboxes/{inboxId} {
-        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn() && isValidId(inboxId) && request.auth.uid == userId
                       && isValidConnectedInbox(incoming())
                       && exists(/databases/$(database)/documents/users/$(userId));
@@ -119,31 +139,30 @@ service cloud.firestore {
       }
 
       match /leads/{leadId} {
-        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
         allow create: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
-                      && isValidLead(incoming())
+                      && isValidLead(incoming()) && incoming().keys().size() == 8
                       && exists(/databases/$(database)/documents/users/$(userId));
         allow update: if isSignedIn() && isValidId(leadId) && request.auth.uid == userId
-                      && isValidLead(incoming())
-                      && incoming().userId == existing().userId
-                      && incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'score', 'status']);
+                      && (incoming().diff(existing()).affectedKeys().hasOnly(['tags', 'score', 'status', 'signals']));
         allow delete: if isSignedIn() && request.auth.uid == userId;
       }
 
       match /campaign_steps/{stepId} {
-        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
         allow create: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
-                      && isValidCampaignStep(incoming())
+                      && isValidCampaignStep(incoming()) && incoming().keys().size() == 8
                       && exists(/databases/$(database)/documents/users/$(userId));
         allow update: if isSignedIn() && isValidId(stepId) && request.auth.uid == userId
-                      && isValidCampaignStep(incoming())
-                      && incoming().userId == existing().userId
-                      && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'delay', 'subject', 'content']);
+                      && (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'delay', 'subject', 'content', 'status', 'schedule', 'analytics']));
         allow delete: if isSignedIn() && request.auth.uid == userId;
       }
 
       match /app_notifications/{notificationId} {
-        allow read, list: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn() && isValidId(notificationId) && request.auth.uid == userId
                       && isValidAppNotification(incoming())
                       && exists(/databases/$(database)/documents/users/$(userId));
@@ -151,8 +170,18 @@ service cloud.firestore {
       }
 
       match /gmail_tokens/{tokenId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow get: if isSignedIn() && request.auth.uid == userId;
         allow write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /scheduled_emails/{emailId} {
+        allow get: if isSignedIn() && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
+        allow create: if isSignedIn() && isValidId(emailId) && request.auth.uid == userId
+                      && isValidScheduledEmail(incoming())
+                      && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isSignedIn() && isValidId(emailId) && request.auth.uid == userId;
+        allow delete: if isSignedIn() && request.auth.uid == userId;
       }
     }
   }

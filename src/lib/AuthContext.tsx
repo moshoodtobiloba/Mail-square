@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
-import { auth, googleProvider } from './firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, googleProvider, db } from './firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -46,6 +47,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Explicitly set the user to break out of the LandingView instantly
       setUser(result.user);
       
+      // Upsert user document to Firestore to ensure existence for rules
+      try {
+        await setDoc(doc(db, 'users', result.user.uid), {
+          name: result.user.displayName || 'Relay User',
+          email: result.user.email,
+          createdAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.error("Failed to upsert user document:", err);
+        // We continue even if this fails as it might be a permission issue that rules will fix later
+      }
+      
       // Extract the Google Access Token (for Gmail API)
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken && result.user.email) {
@@ -57,6 +70,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
          
          // Set current for immediate use
          localStorage.setItem('gmail_access_token', credential.accessToken);
+
+         // Add to connected_inboxes collection to ensure visibility across views
+         try {
+           const inboxId = result.user.email.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+           await setDoc(doc(db, 'users', result.user.uid, 'connected_inboxes', inboxId), {
+             email: result.user.email,
+             name: result.user.displayName || 'Gmail Node',
+             photoURL: result.user.photoURL,
+             status: 'Active',
+             health: 99,
+             userId: result.user.uid,
+             createdAt: serverTimestamp()
+           }, { merge: true });
+         } catch (err) {
+           console.error("Failed to sync connected inbox to Firestore:", err);
+         }
       }
       
     } catch (error: any) {

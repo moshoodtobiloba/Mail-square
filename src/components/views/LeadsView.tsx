@@ -1,22 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Trash2, Search, UserPlus, Users, AlertCircle, Clipboard, X, CheckCircle2 } from 'lucide-react';
 import { parseEmailNames } from '../../utils/parser';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { useAuth } from '../../lib/AuthContext';
+import { db } from '../../lib/firebase';
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, where, updateDoc, writeBatch } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 import Papa from 'papaparse';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function LeadsView() {
-  const [leads, setLeads] = useLocalStorage<{email: string, firstName: string, lastName: string, tags: string[], score: number, status: string, signals?: {opens: number, replies: number, clicks: number}}[]>('lead_database', []);
+  const { user } = useAuth();
+  const [leads, setLeads] = useState<{id?: string, email: string, firstName: string, lastName: string, tags: string[], score: number, status: string, signals?: {opens: number, replies: number, clicks: number}}[]>([]);
   const [newLead, setNewLead] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedLeads, setSelectedLeads] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{message: string, undoAction?: () => void} | null>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [importProgress, setImportProgress] = useState(0);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const path = `users/${user.uid}/leads`;
+    const q = query(
+      collection(db, path),
+      where('userId', '==', user.uid)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setLeads(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, path));
+    return () => unsubscribe();
+  }, [user]);
 
   const calculateScore = (signals?: {opens: number, replies: number, clicks: number}) => {
     if (!signals) return 0;
@@ -25,7 +41,8 @@ export default function LeadsView() {
 
   const isValidEmail = (email: string) => /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
+    if (!user) return;
     const trimmed = newLead.trim();
     if (!trimmed) return;
     if (!isValidEmail(trimmed)) {
@@ -40,9 +57,23 @@ export default function LeadsView() {
       return;
     }
 
-    setLeads([{ email: trimmed, firstName, lastName, tags: [], score: 0, status: 'new', signals: {opens: 0, replies: 0, clicks: 0} }, ...leads]);
-    setNewLead('');
-    setToast({ message: "Lead added!" });
+    const path = `users/${user.uid}/leads`;
+    try {
+      await addDoc(collection(db, path), {
+        email: trimmed,
+        firstName,
+        lastName,
+        tags: [],
+        score: 0,
+        status: 'new',
+        userId: user.uid,
+        signals: { opens: 0, replies: 0, clicks: 0 }
+      });
+      setNewLead('');
+      setToast({ message: "Lead added!" });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, path);
+    }
   }
   
   const toggleLeadSelection = (email: string) => {
@@ -52,31 +83,26 @@ export default function LeadsView() {
     setSelectedLeads(newSelected);
   };
     
-  const deleteLead = (email: string) => {
+  const deleteLead = async (email: string) => {
+      if (!user) return;
       const leadToDelete = leads.find(l => l.email === email);
-      if(!leadToDelete) return;
+      if(!leadToDelete || !leadToDelete.id) return;
       
-      const newLeads = leads.filter(l => l.email !== email);
-      setLeads(newLeads);
-      
-      setToast({ 
-          message: `Lead ${email} deleted`, 
-          undoAction: () => {
-              setLeads(prev => [leadToDelete, ...prev]);
-              setToast(null);
-          } 
-      });
-      setTimeout(() => setToast(null), 5000);
+      const path = `users/${user.uid}/leads/${leadToDelete.id}`;
+      try {
+        await deleteDoc(doc(db, `users/${user.uid}/leads`, leadToDelete.id));
+        setToast({ message: `Lead ${email} deleted` });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.DELETE, path);
+      }
   };
 
-  const handleBulkAdd = () => {
-    if (!bulkText.trim()) return;
+  const handleBulkAdd = async () => {
+    if (!user || !bulkText.trim()) return;
     setBulkLoading(true);
     
     const lines = bulkText.split(/\n/);
     const validLeadsToAdd: any[] = [];
-    const invalidEmails: string[] = [];
-    const duplicateEmails: Set<string> = new Set();
     const existingEmails = new Set(leads.map(l => l.email.toLowerCase()));
 
     lines.forEach(line => {
@@ -87,12 +113,7 @@ export default function LeadsView() {
       if (emailMatch) {
         const email = emailMatch[0].toLowerCase();
         
-        if (!isValidEmail(email)) {
-           invalidEmails.push(email);
-        } else if (existingEmails.has(email) || validLeadsToAdd.some(l => l.email === email)) {
-           duplicateEmails.add(email);
-        } else {
-          // Check if line has names
+        if (isValidEmail(email) && !existingEmails.has(email) && !validLeadsToAdd.some(l => l.email === email)) {
           let firstName = '';
           let lastName = '';
           
@@ -122,6 +143,7 @@ export default function LeadsView() {
             tags: [],
             score: 0,
             status: 'new',
+            userId: user.uid,
             signals: {opens: 0, replies: 0, clicks: 0}
           });
         }
@@ -129,87 +151,88 @@ export default function LeadsView() {
     });
 
     if (validLeadsToAdd.length > 0) {
-      setLeads(prev => [...validLeadsToAdd, ...prev]);
+      const path = `users/${user.uid}/leads`;
+      try {
+        const batchSize = 500;
+        for (let i = 0; i < validLeadsToAdd.length; i += batchSize) {
+          const batch = writeBatch(db);
+          const chunk = validLeadsToAdd.slice(i, i + batchSize);
+          chunk.forEach(lead => {
+            const newDocRef = doc(collection(db, path));
+            batch.set(newDocRef, lead);
+          });
+          await batch.commit();
+        }
+        setToast({ message: `Added ${validLeadsToAdd.length} leads.` });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, path);
+      }
     }
 
-    const messages = [];
-    if (validLeadsToAdd.length > 0) messages.push(`Added ${validLeadsToAdd.length} leads.`);
-    if (invalidEmails.length > 0) messages.push(`${invalidEmails.length} invalid emails skipped.`);
-    if (duplicateEmails.size > 0) messages.push(`${duplicateEmails.size} duplicates removed.`);
-    
-    setToast({ message: messages.join(' ') });
-    
     setBulkLoading(false);
     setIsBulkModalOpen(false);
     setBulkText('');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         const newLeads: any[] = [];
         const existingEmails = new Set(leads.map(l => l.email.toLowerCase()));
-        const batchEmails = new Set<string>();
         
-        let invalidCount = 0;
-        let duplicateCount = 0;
-
         results.data.forEach((row: any) => {
           const emailRaw = row.email || row.Email || row.EMAIL || Object.values(row).find(v => typeof v === 'string' && v.includes('@'));
           if (emailRaw && typeof emailRaw === 'string') {
             const email = emailRaw.trim().toLowerCase();
             
-            if (!isValidEmail(email)) {
-               invalidCount++;
-               return;
+            if (isValidEmail(email) && !existingEmails.has(email) && !newLeads.some(l => l.email === email)) {
+              const firstName = row.firstName || row.first_name || row['First Name'] || '';
+              const lastName = row.lastName || row.last_name || row['Last Name'] || '';
+              
+              newLeads.push({ 
+                  email: email, 
+                  firstName: firstName.trim() || parseEmailNames(email).firstName, 
+                  lastName: lastName.trim() || parseEmailNames(email).lastName,
+                  tags: [],
+                  score: 0,
+                  status: 'new',
+                  userId: user.uid,
+                  signals: {opens: 0, replies: 0, clicks: 0}
+              });
             }
-
-            if (existingEmails.has(email) || batchEmails.has(email)) {
-               duplicateCount++;
-               return;
-            }
-
-            const firstName = row.firstName || row.first_name || row['First Name'] || '';
-            const lastName = row.lastName || row.last_name || row['Last Name'] || '';
-            
-            newLeads.push({ 
-                email: email, 
-                firstName: firstName.trim() || parseEmailNames(email).firstName, 
-                lastName: lastName.trim() || parseEmailNames(email).lastName,
-                tags: [],
-                score: 0,
-                status: 'new',
-                signals: {opens: 0, replies: 0, clicks: 0}
-            });
-            batchEmails.add(email);
           }
         });
 
         if (newLeads.length > 0) {
-          setLeads(prev => [...newLeads, ...prev]);
-          setImportStatus('success');
-          setTimeout(() => setImportStatus('idle'), 3000);
+          const path = `users/${user.uid}/leads`;
+          try {
+            const batchSize = 500;
+            for (let i = 0; i < newLeads.length; i += batchSize) {
+              const batch = writeBatch(db);
+              const chunk = newLeads.slice(i, i + batchSize);
+              chunk.forEach(lead => {
+                const newDocRef = doc(collection(db, path));
+                batch.set(newDocRef, lead);
+              });
+              await batch.commit();
+            }
+            setImportStatus('success');
+            setTimeout(() => setImportStatus('idle'), 3000);
+            setToast({ message: `Added ${newLeads.length} leads.` });
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, path);
+          }
         } else {
              setImportStatus('error');
              setTimeout(() => setImportStatus('idle'), 3000);
-        }                
-        
-        const messages = [];
-        if (newLeads.length > 0) messages.push(`Added ${newLeads.length} leads.`);
-        if (invalidCount > 0) messages.push(`${invalidCount} invalid emails skipped.`);
-        if (duplicateCount > 0) messages.push(`${duplicateCount} duplicates removed.`);
-        
-        setToast({ message: messages.length > 0 ? messages.join(' ') : "No valid leads found in CSV." });
-      },
-      error: (err) => {
-        console.error("CSV Parse Error:", err);
-        setImportStatus('error');
-        setToast({ message: "Failed to import CSV." });
+             setToast({ message: "No new valid leads found." });
+        }
       }
     });
   };
@@ -222,26 +245,37 @@ export default function LeadsView() {
 
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
 
-  const clearLeads = () => {
-    setLeads([]);
-    setShowWipeConfirm(false);
+  const clearLeads = async () => {
+    if (!user) return;
+    const path = `users/${user.uid}/leads`;
+    try {
+      const batch = writeBatch(db);
+      leads.forEach(lead => {
+        if (lead.id) batch.delete(doc(db, path, lead.id));
+      });
+      await batch.commit();
+      setShowWipeConfirm(false);
+      setToast({ message: "Database wiped." });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
   };
 
   return (
     <div className="animate-in fade-in duration-500 space-y-6">
+      <AnimatePresence>
       {toast && (
         <motion.div 
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
+          onAnimationComplete={() => setTimeout(() => setToast(null), 3000)}
           className="fixed bottom-8 right-8 bg-gray-900 text-white px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4 z-[100]"
         >
           <p className="text-sm font-bold">{toast.message}</p>
-          {toast.undoAction && (
-            <button onClick={toast.undoAction} className="text-blue-400 hover:text-blue-300 font-black uppercase text-xs tracking-widest px-3 py-1 border border-blue-900 rounded-lg">Undo</button>
-          )}
         </motion.div>
       )}
+      </AnimatePresence>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -253,9 +287,13 @@ export default function LeadsView() {
             <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 px-4 py-2 rounded-2xl mr-4 animate-in fade-in slide-in-from-right-4">
               <span className="text-xs font-black text-blue-600 uppercase tracking-widest">{selectedLeads.size} Selected</span>
               <button 
-                onClick={() => {
-                  if(window.confirm('Are you sure you want to delete these leads?')) {
-                    setLeads(leads.filter(l => !selectedLeads.has(l.email)));
+                onClick={async () => {
+                  if(user && window.confirm('Are you sure you want to delete these leads?')) {
+                    const batch = writeBatch(db);
+                    leads.filter(l => selectedLeads.has(l.email)).forEach(l => {
+                      if (l.id) batch.delete(doc(db, `users/${user.uid}/leads`, l.id));
+                    });
+                    await batch.commit();
                     setSelectedLeads(new Set());
                     setToast({ message: `Deleted ${selectedLeads.size} leads` });
                   }
@@ -265,10 +303,15 @@ export default function LeadsView() {
                   Delete
               </button>
               <button 
-                 onClick={() => {
-                     setLeads(leads.map(l => selectedLeads.has(l.email) ? {...l, status: 'contacted'} : l));
-                     setSelectedLeads(new Set());
-                     setToast({ message: `Marked ${selectedLeads.size} leads as contacted` });
+                 onClick={async () => {
+                    if (!user) return;
+                    const batch = writeBatch(db);
+                    leads.filter(l => selectedLeads.has(l.email)).forEach(l => {
+                       if (l.id) batch.update(doc(db, `users/${user.uid}/leads`, l.id), { status: 'contacted' });
+                    });
+                    await batch.commit();
+                    setSelectedLeads(new Set());
+                    setToast({ message: `Marked ${selectedLeads.size} leads as contacted` });
                  }}
                  className="px-3 py-1 bg-white text-emerald-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 hover:bg-emerald-50"
               >
@@ -454,6 +497,7 @@ export default function LeadsView() {
                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${score > 70 ? 'bg-emerald-50 text-emerald-600' : score > 40 ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-600'}`}>
                          {score} pts
                        </span>
+                       {lead.status === 'contacted' && <span className="text-[8px] font-black uppercase text-blue-500">Contacted</span>}
                     </div>
                     <div className="w-full sm:text-right">
                       <button 

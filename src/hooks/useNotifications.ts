@@ -1,56 +1,52 @@
-import { useEffect, useState } from 'react';
-import { getToken, onMessage } from 'firebase/messaging';
-import { messaging, db, auth } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { useState, useCallback, useEffect } from 'react';
+
+interface AppNotification {
+  id: string;
+  title: string;
+  desc: string;
+  type: 'info' | 'success' | 'alert';
+}
 
 export function useNotifications() {
-  const [token, setToken] = useState<string | null>(null);
-  const [error, setError] = useState<Error | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const requestPermission = async () => {
-    try {
-      if (!messaging) return;
-
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        const currentToken = await getToken(messaging, {
-          vapidKey: 'BOGkUhD5U9re0qSmJyTJ5gaO3D117FZNv93kxIH8la-UrwEU7jazgtM3bOetZ0xpZypP639BhObQPnBKaYOvjgo'
-        });
-
-        if (currentToken) {
-          setToken(currentToken);
-          // Store token in Firestore for the current user
-          if (auth.currentUser) {
-            await setDoc(doc(db, 'fcm_tokens', auth.currentUser.uid), {
-              token: currentToken,
-              updatedAt: serverTimestamp(),
-              email: auth.currentUser.email
-            }, { merge: true });
-          }
-        } else {
-          console.warn('No registration token available. Request permission to generate one.');
-        }
-      }
-    } catch (err) {
-      console.error('An error occurred while retrieving token. ', err);
-      setError(err as Error);
+  const requestPermission = useCallback(async () => {
+    if (!("Notification" in window)) {
+      setError("This browser does not support desktop notification");
+      return;
     }
-  };
-
-  useEffect(() => {
-    if (messaging) {
-      onMessage(messaging, (payload) => {
-        console.log('Message received. ', payload);
-        // Custom logic to show notification when app is in foreground
-        if (payload.notification) {
-          new Notification(payload.notification.title || 'New Notification', {
-            body: payload.notification.body,
-            icon: '/logo.svg'
-          });
-        }
-      });
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setError(null);
+    } else {
+      setError("Permission denied");
     }
   }, []);
 
-  return { token, error, requestPermission };
+  const addNotification = useCallback((notification: Omit<AppNotification, 'id'>) => {
+    const id = Date.now().toString();
+    const newNotif = { ...notification, id };
+    setNotifications(prev => [...prev, newNotif]);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+    
+    // Browser notification
+    if (document.hidden && Notification.permission === 'granted') {
+      try {
+        new Notification(newNotif.title, { body: newNotif.desc });
+      } catch (e) {
+        console.error("Browser notification failed", e);
+      }
+    }
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+  }, []);
+
+  return { notifications, addNotification, clearNotifications, requestPermission, error, token: null };
 }

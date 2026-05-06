@@ -226,6 +226,87 @@ export async function createApp() {
     }
   });
 
+  // Autonomous Email Processor (Runs in background)
+  async function processQueuedEmails() {
+    console.log("[BackgroundProcessor] Checking for scheduled emails...");
+    try {
+      const db = getDb();
+      const usersSnap = await db.collection("users").listDocuments();
+      
+      for (const userDoc of usersSnap) {
+        const uid = userDoc.id;
+        const scheduledSnap = await userDoc.collection("scheduled_emails")
+          .where("status", "==", "Scheduled")
+          .where("scheduledAt", "<=", Date.now())
+          .get();
+
+        for (const emailDoc of scheduledSnap.docs) {
+          const email = emailDoc.data();
+          console.log(`[BackgroundProcessor] Processing email for ${uid}: ${email.to}`);
+          
+          try {
+            // Get user tokens
+            const tokenDoc = await userDoc.collection("gmail_tokens").doc(email.account.toLowerCase()).get();
+            if (!tokenDoc.exists) {
+              console.warn(`[BackgroundProcessor] No tokens for ${email.account}`);
+              await emailDoc.ref.update({ status: 'Failed' });
+              continue;
+            }
+
+            const tokens = tokenDoc.data()!;
+            const client = getOAuthClient();
+            client.setCredentials(tokens);
+
+            // Send Email
+            const utf8Subject = `=?utf-8?B?${Buffer.from(email.subject).toString('base64')}?=`;
+            const rawMessage = [
+              `To: ${email.to}`,
+              `Subject: ${utf8Subject}`,
+              'Content-Type: text/html; charset="UTF-8"',
+              'MIME-Version: 1.0',
+              '',
+              email.body.replace(/\n/g, '<br/>')
+            ].join('\r\n');
+
+            const encodedMessage = Buffer.from(rawMessage).toString('base64')
+              .replace(/\+/g, '-')
+              .replace(/\//g, '_')
+              .replace(/=+$/, '');
+
+            await client.request({
+              url: `https://www.googleapis.com/gmail/v1/users/me/messages/send`,
+              method: 'POST',
+              data: { raw: encodedMessage }
+            });
+
+            // Update lead status to 'contacted' if they are in the database
+            const leadsSnap = await userDoc.collection("leads")
+              .where("email", "==", email.to.toLowerCase())
+              .get();
+            
+            if (!leadsSnap.empty) {
+              await leadsSnap.docs[0].ref.update({ status: 'contacted' });
+              console.log(`[BackgroundProcessor] Updated lead status for ${email.to}`);
+            }
+
+            // Update/Delete
+            await emailDoc.ref.delete();
+            console.log(`[BackgroundProcessor] Sent successfully to ${email.to}`);
+          } catch (err: any) {
+            console.error(`[BackgroundProcessor] Error sending ${emailDoc.id}:`, err.message);
+            await emailDoc.ref.update({ status: 'Failed' });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[BackgroundProcessor] Loop error:", err);
+    }
+  }
+
+  // Run every 60s
+  setInterval(processQueuedEmails, 60000);
+  console.log("[BackgroundProcessor] Initialized.");
+
   return app;
 }
 

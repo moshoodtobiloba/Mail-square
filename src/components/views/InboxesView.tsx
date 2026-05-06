@@ -1,13 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Mail, Zap, ShieldAlert, Plus, CheckCircle2, Clock } from 'lucide-react';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 
 export default function InboxesView() {
-  const { signIn } = useAuth();
-  const [inboxes] = useLocalStorage<{email: string, health: number, status: string, name: string, photoURL?: string}[]>('connected_inboxes', []);
+  const { signIn, user } = useAuth();
+  const [inboxes, setInboxes] = useState<{email: string, health: number, status: string, name: string, photoURL?: string}[]>([]);
   const [checkingEmail, setCheckingEmail] = useState<string | null>(null);
   const [realHealthData, setRealHealthData] = useState<Record<string, {strength: number, sent: number, status: string}>>({});
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'users', user.uid, 'connected_inboxes'),
+      where('userId', '==', user.uid)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => doc.data() as any);
+      setInboxes(data);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   const handleHealthCheck = async (email: string) => {
     setCheckingEmail(email);

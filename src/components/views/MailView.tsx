@@ -66,9 +66,10 @@ const getBodyFromPayload = (payload: any): string => {
 import { Logo } from '../ui/Logo';
 import { useAuth } from '../../lib/AuthContext';
 import { 
-  collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs
+  collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs, updateDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';
 
 const AVAILABLE_EMOJIS = ['👍', '❤️', '😂', '👏', '🔥', '😮', '😢', '💯', '🤩', '🎉', '🙌', '🤔', '👀', '🚀', '✨', '✅', '🌈', '🎂', '🥳', '🎈', '🤝', '💪', '🙏', '⚡'];
 
@@ -172,7 +173,19 @@ export default function MailView() {
   const [selectedEmail, setSelectedEmail] = useState<any | null>(null);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [leads] = useLocalStorage<{email: string, firstName: string, lastName: string}[]>('lead_database', []);
+  const [leads, setLeads] = useState<{id?: string, email: string, firstName: string, lastName: string, status: string, signals?: {opens: number, replies: number, clicks: number}}[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const path = `users/${user.uid}/leads`;
+    // Apply server-side filter for rules compliance
+    const q = query(collection(db, path), where('userId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setLeads(data);
+    }, (err) => handleFirestoreError(err, OperationType.GET, path));
+    return () => unsubscribe();
+  }, [user]);
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
   const [showLeadResults, setShowLeadResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -207,7 +220,29 @@ export default function MailView() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [sortCriterion, setSortCriterion] = useState<'date' | 'sender' | 'subject' | 'read'>('date');
 
-  const [scheduledEmails, setScheduledEmails] = useLocalStorage<any[]>('scheduled_emails', []);
+  const [scheduledEmails, setScheduledEmails] = useState<any[]>([]);
+
+  // Sync Scheduled Emails from Firestore
+  useEffect(() => {
+    if (!user) return;
+    
+    // Subscribe to Firestore collection
+    const q = query(
+        collection(db, 'users', user.uid, 'scheduled_emails'),
+        where('status', 'in', ['Scheduled', 'Failed'])
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const emails = snapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data() 
+        }));
+        setScheduledEmails(emails);
+    }, (err) => handleFirestoreError(err, OperationType.GET, `users/${user.uid}/scheduled_emails`));
+    
+    return () => unsubscribe();
+  }, [user]);
+
   const [autoSendConfig, setAutoSendConfig] = useLocalStorage('auto_send_config_v2', {
     interval: '30',
     unit: 'seconds',
@@ -282,30 +317,6 @@ export default function MailView() {
       photoURL: customPhoto || rawAccount.photoURL
     };
   }, [inboxes, activeAccountIndex, customName, customPhoto]);
-
-  enum OperationType {
-    CREATE = 'create',
-    UPDATE = 'update',
-    DELETE = 'delete',
-    LIST = 'list',
-    GET = 'get',
-    WRITE = 'write',
-  }
-
-  function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-    const errInfo = {
-      error: error instanceof Error ? error.message : String(error),
-      authInfo: {
-        userId: user?.uid,
-        email: user?.email,
-        emailVerified: (user as any)?.emailVerified,
-      },
-      operationType,
-      path
-    };
-    console.error('Firestore Error: ', JSON.stringify(errInfo));
-    throw new Error(JSON.stringify(errInfo));
-  }
 
   // Real-time synchronization of reactions
   useEffect(() => {
@@ -643,7 +654,8 @@ export default function MailView() {
         if (searchFilters.status === 'unread') filters.push('is:unread');
         query = filters.join(' ');
       } else {
-        if (activeLabel === 'Promotions') query = 'category:promotions';
+        if (activeLabel === 'Primary') query = 'label:INBOX -category:promotions -category:social -category:updates -category:forums';
+        else if (activeLabel === 'Promotions') query = 'category:promotions';
         else if (activeLabel === 'Social') query = 'category:social';
         else if (activeLabel === 'Updates') query = 'category:updates';
         else if (activeLabel === 'Forums') query = 'category:forums';
@@ -804,8 +816,12 @@ export default function MailView() {
         setSyncStatus('Live');
       }
     } catch (err: any) { 
-      console.error("Sync fetch error:", err.message);
-      setApiError(err.message); 
+      let msg = err.message;
+      if (msg === 'Failed to fetch') {
+        msg = 'Connection to the sync relay failed. Please ensure the backend is running and you have internet access.';
+      }
+      console.error("Sync fetch error:", msg);
+      setApiError(msg); 
       setSyncStatus('Error');
     } finally { 
       setLoadingEmails(false); 
@@ -962,28 +978,34 @@ export default function MailView() {
     // Handle scheduling if active
     if (scheduleDate && scheduleTime) {
       const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`).getTime();
-      const newScheduledEmail = {
-        id: Date.now().toString(),
-        to: composeData.to,
-        subject: processedSubject,
-        body: processedBody,
-        scheduledAt,
-        status: 'Scheduled',
-        account: activeAccount.email
-      };
-      setScheduledEmails([...scheduledEmails, newScheduledEmail]);
-      setNotifications(prev => [...prev, { 
-        id: Date.now().toString(), 
-        type: 'success',
-        title: 'Email Scheduled',
-        desc: `Message scheduled for ${scheduleDate} at ${scheduleTime}`,
-        link: 'Mail'
-      }]);
-      setIsComposeOpen(false);
-      setComposeData({ to: '', subject: '', body: '' });
-      setScheduleDate('');
-      setScheduleTime('');
-      setShowSchedulePicker(false);
+      const path = `users/${user.uid}/scheduled_emails`;
+      try {
+        await addDoc(collection(db, path), {
+          to: composeData.to,
+          subject: processedSubject,
+          body: processedBody,
+          scheduledAt,
+          status: 'Scheduled',
+          account: activeAccount.email,
+          userId: user.uid,
+          createdAt: serverTimestamp()
+        });
+        
+        setNotifications(prev => [...prev, { 
+          id: Date.now().toString(), 
+          type: 'success',
+          title: 'Email Scheduled',
+          desc: `Message scheduled for ${scheduleDate} at ${scheduleTime}`,
+          link: 'Mail'
+        }]);
+        setIsComposeOpen(false);
+        setComposeData({ to: '', replyTo: '', subject: '', body: '', customHeaders: '' });
+        setScheduleDate('');
+        setScheduleTime('');
+        setShowSchedulePicker(false);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, path);
+      }
       return;
     }
 
@@ -1068,6 +1090,15 @@ export default function MailView() {
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.error?.message || 'Failed to send');
+      }
+
+      // Update lead status
+      if (composeData.to) {
+        const lead = leads.find(l => l.email.toLowerCase() === composeData.to.toLowerCase());
+        if (lead && lead.id) {
+          const leadRef = doc(db, `users/${user.uid}/leads`, lead.id);
+          await updateDoc(leadRef, { status: 'contacted' });
+        }
       }
 
       setNotifications(prev => [...prev, { 
@@ -1366,7 +1397,7 @@ export default function MailView() {
           });
 
           if (res.ok) {
-            setScheduledEmails(prev => prev.filter(e => e.id !== email.id));
+            await deleteDoc(doc(db, 'users', user.uid, 'scheduled_emails', email.id));
             setNotifications(prev => [...prev, {
               id: Date.now().toString(),
               type: 'success',
@@ -1376,7 +1407,7 @@ export default function MailView() {
             }]);
           } else {
              // Mark as failed to avoid infinite loop
-             setScheduledEmails(prev => prev.map(e => e.id === email.id ? { ...e, status: 'Failed' } : e));
+             await updateDoc(doc(db, 'users', user.uid, 'scheduled_emails', email.id), { status: 'Failed' });
           }
         } catch (err) {
           console.error("Scheduled send failed", err);
@@ -2016,11 +2047,15 @@ export default function MailView() {
                 <div className="flex gap-4">
                    <div className="bg-white border-2 border-blue-100 p-5 rounded-3xl shadow-sm min-w-[140px] text-center hover:scale-105 transition-transform">
                      <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Open Velocity</p>
-                     <p className="text-3xl font-black text-blue-600 tracking-tighter">{(leads.length > 0 ? 32.5 : 0).toFixed(1)}%</p>
+                     <p className="text-3xl font-black text-blue-600 tracking-tighter">
+                       {leads.length > 0 ? (leads.filter(l => (l.signals?.opens || 0) > 0).length / leads.length * 100).toFixed(1) : "0.0"}%
+                     </p>
                    </div>
                    <div className="bg-white border-2 border-emerald-100 p-5 rounded-3xl shadow-sm min-w-[140px] text-center hover:scale-105 transition-transform">
                      <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Reply Ratio</p>
-                     <p className="text-3xl font-black text-emerald-600 tracking-tighter">{(leads.length > 0 ? 4.2 : 0).toFixed(1)}%</p>
+                     <p className="text-3xl font-black text-emerald-600 tracking-tighter">
+                       {leads.length > 0 ? (leads.filter(l => (l.signals?.replies || 0) > 0).length / leads.length * 100).toFixed(1) : "0.0"}%
+                     </p>
                    </div>
                 </div>
               </div>
@@ -2029,30 +2064,36 @@ export default function MailView() {
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-blue-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Awaiting Step 1</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.42)) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">
+                      {leads.filter(l => l.status === 'new' || !l.status).length}
+                    </p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-tighter">Healthy</span>
+                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-tighter">Untouched</span>
                     <TrendingUp className="w-5 h-5 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-amber-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Pending Follow-up</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.18)) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">
+                      {leads.filter(l => l.status === 'contacted' && (l.signals?.replies || 0) === 0).length}
+                    </p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full uppercase tracking-tighter">Scheduled</span>
+                    <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full uppercase tracking-tighter">Awaiting Reply</span>
                     <Clock className="w-5 h-5 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
                 <div className="bg-white border border-gray-100 rounded-3xl p-8 shadow-sm flex flex-col justify-between group hover:border-emerald-500 transition-colors">
                   <div>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4">Converted</h4>
-                    <p className="text-5xl font-black text-gray-900 tracking-tighter">{leads.length > 0 ? Math.max(1, Math.floor(leads.length * 0.08)) : 0}</p>
+                    <p className="text-5xl font-black text-gray-900 tracking-tighter">
+                      {leads.filter(l => (l.signals?.replies || 0) > 0).length}
+                    </p>
                   </div>
                   <div className="mt-8 flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase tracking-tighter">Closed</span>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-full uppercase tracking-tighter">Active Thread</span>
                     <CheckSquare className="w-5 h-5 text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </div>
@@ -2068,7 +2109,7 @@ export default function MailView() {
                     </div>
                   </div>
                   <div className="divide-y divide-gray-50">
-                    {leads.slice(0, 6).map((lead, i) => (
+                    {(leads || []).slice(0, 6).map((lead, i) => (
                       <div key={lead.email} className="px-8 py-5 flex items-center justify-between hover:bg-blue-50/30 transition-all group">
                         <div className="flex items-center gap-5">
                           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-lg rotate-${i % 2 === 0 ? '-3' : '3'} transform transition-transform group-hover:rotate-0 duration-300 ${i % 3 === 0 ? 'bg-indigo-600' : i % 3 === 1 ? 'bg-blue-600' : 'bg-purple-600'}`}>

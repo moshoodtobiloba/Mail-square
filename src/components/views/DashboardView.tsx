@@ -1,13 +1,34 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Activity, Mail, Users, MousePointer2, GitMerge, TrendingUp, ShieldCheck, Zap, ArrowUpRight, BarChart3 } from 'lucide-react';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { useAuth } from '../../lib/AuthContext';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { motion } from 'motion/react';
 
 export default function DashboardView() {
-  const [leads] = useLocalStorage<{email: string}[]>('lead_database', []);
-  const [inboxes] = useLocalStorage<{email: string, health: number, status: string}[]>('connected_inboxes', []);
-  const [scheduledEmails] = useLocalStorage<any[]>('scheduled_emails', []);
+  const { user } = useAuth();
+  const [leads, setLeads] = useState<any[]>([]);
+  const [inboxes, setInboxes] = useState<any[]>([]);
+  const [scheduledEmails, setScheduledEmails] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const leadsQ = query(collection(db, 'users', user.uid, 'leads'), where('userId', '==', user.uid));
+    const inboxesQ = query(collection(db, 'users', user.uid, 'connected_inboxes'), where('userId', '==', user.uid));
+    const scheduledQ = query(collection(db, 'users', user.uid, 'scheduled_emails'), where('userId', '==', user.uid));
+
+    const unsubLeads = onSnapshot(leadsQ, (snap) => setLeads(snap.docs.map(d => d.data())));
+    const unsubInboxes = onSnapshot(inboxesQ, (snap) => setInboxes(snap.docs.map(d => d.data())));
+    const unsubScheduled = onSnapshot(scheduledQ, (snap) => setScheduledEmails(snap.docs.map(d => d.data())));
+
+    return () => {
+      unsubLeads();
+      unsubInboxes();
+      unsubScheduled();
+    };
+  }, [user]);
   
   const chartData = useMemo(() => {
     // Generate semi-variable data based on leads length

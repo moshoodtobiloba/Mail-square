@@ -1,50 +1,38 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Play, Type, Paperclip, Link2, Plus, Zap, GripVertical, File, Calendar, X } from 'lucide-react';
-import { useLocalStorage } from '../../hooks/useLocalStorage';
+import { collection, query, where, onSnapshot, doc, setDoc, addDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../lib/AuthContext';
 import { Logo } from '../ui/Logo';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function CampaignsView() {
   const { user } = useAuth();
-  const [activeStep, setActiveStep] = useState(1);
+  const [activeStep, setActiveStep] = useState<any>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [steps, setSteps] = useLocalStorage('campaign_steps', [
-    { 
-      id: 1, 
-      name: 'Initial Outreach Mail', 
-      delay: 'Send immediately', 
-      subject: 'Quick question about {Company}', 
-      content: 'Hi {First Name},\n\nInterested in improving {Company}?',
-      status: 'Scheduled',
-      schedule: {
-        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-        times: ['09:00'],
-        recurring: true
-      },
-      analytics: { sent: 124, opened: 48, replied: 12, bounced: 2 }
-    },
-    { 
-      id: 2, 
-      name: 'Follow-up Mail', 
-      delay: 'Wait 3 days if no reply', 
-      subject: 'Re: Quick question about {Company}', 
-      content: 'Hi {First Name},\n\nJust following up on my previous note. Any thoughts?',
-      status: 'Scheduled',
-      schedule: {
-        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-        times: ['10:00'],
-        recurring: false
-      },
-      analytics: { sent: 42, opened: 21, replied: 4, bounced: 0 }
-    }
-  ]);
+  const [steps, setSteps] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
 
-  const [templates, setTemplates] = useLocalStorage('email_templates', [
-    { id: '1', name: 'Cold Intro', subject: 'Connecting with {Company}', content: 'Hi {First Name},\n\nI saw what you are doing at {Company}...' },
-    { id: '2', name: 'Product Demo', subject: 'Demo for {Company}', content: 'Hi {First Name},\n\nWould you be open to a quick demo of our solution?' }
-  ]);
-  
+  useEffect(() => {
+    if (!user) return;
+    const stepsQ = query(collection(db, 'users', user.uid, 'campaign_steps'), where('userId', '==', user.uid));
+    const unsubSteps = onSnapshot(stepsQ, (snap) => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setSteps(data);
+      if (data.length > 0 && !activeStep) setActiveStep(data[0].id);
+    });
+
+    const templatesQ = query(collection(db, 'users', user.uid, 'email_templates'), where('userId', '==', user.uid));
+    const unsubTemplates = onSnapshot(templatesQ, (snap) => {
+      setTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => {
+      unsubSteps();
+      unsubTemplates();
+    };
+  }, [user]);
+
   const rawStep = (steps.find((s: any) => s.id === activeStep) || steps[0] || {}) as any;
   const currentStep: any = {
     ...rawStep,
@@ -53,8 +41,36 @@ export default function CampaignsView() {
     status: rawStep.status || 'Scheduled'
   };
 
-  const updateCurrentStep = (key: string, value: string) => {
-    setSteps(steps.map(s => s.id === activeStep ? { ...s, [key]: value } : s));
+  const updateCurrentStep = async (key: string, value: any) => {
+    if (!user || !activeStep) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'campaign_steps', activeStep), {
+        [key]: value
+      }, { merge: true });
+    } catch (err) {
+      console.error("Failed to update step:", err);
+    }
+  };
+
+  const addNewStep = async () => {
+    if (!user) return;
+    try {
+      const newStep = {
+        name: 'New Step',
+        delay: 'Send immediately',
+        subject: 'Quick question',
+        content: 'Hi,\n\nInterested in learning more?',
+        status: 'Scheduled',
+        userId: user.uid,
+        schedule: { days: ['Monday'], times: ['09:00'], recurring: true },
+        analytics: { sent: 0, opened: 0, replied: 0, bounced: 0 },
+        createdAt: serverTimestamp()
+      };
+      const res = await addDoc(collection(db, 'users', user.uid, 'campaign_steps'), newStep);
+      setActiveStep(res.id);
+    } catch (err) {
+      console.error("Failed to add step:", err);
+    }
   };
 
   const insertVariable = (variable: string) => {
@@ -97,17 +113,22 @@ export default function CampaignsView() {
 
   const variables = ['FirstName', 'LastName', 'Company', 'Country', 'Job Title'];
 
-  const saveAsTemplate = () => {
+  const saveAsTemplate = async () => {
+    if (!user) return;
     const name = prompt("Enter template name:", currentStep.name);
     if (!name) return;
-    const newTemplate = {
-      id: Date.now().toString(),
-      name,
-      subject: currentStep.subject,
-      content: currentStep.content
-    };
-    setTemplates([...templates, newTemplate]);
-    alert("Template saved!");
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'email_templates'), {
+        name,
+        subject: currentStep.subject,
+        content: currentStep.content,
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+      alert("Template saved!");
+    } catch (err) {
+      console.error("Failed to save template:", err);
+    }
   };
 
   const loadTemplate = (id: string) => {
@@ -119,27 +140,17 @@ export default function CampaignsView() {
 
   const updateSchedule = (key: string, value: any) => {
     const newSchedule = { ...currentStep.schedule, [key]: value };
-    setSteps(steps.map(s => s.id === activeStep ? { ...s, schedule: newSchedule } : s));
+    updateCurrentStep('schedule', newSchedule);
   };
 
-  const addNewStep = () => {
-    const newId = Date.now();
-    const newStep = { 
-      id: newId, 
-      name: `Step ${steps.length + 1}`, 
-      delay: 'Wait X days', 
-      subject: '', 
-      content: '',
-      status: 'Scheduled',
-      schedule: {
-        days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-        times: ['09:00'],
-        recurring: false
-      },
-      analytics: { sent: 0, opened: 0, replied: 0, bounced: 0 }
-    };
-    setSteps([...steps, newStep]);
-    setActiveStep(newId);
+  const deleteStep = async (id: string) => {
+    if (!user || !confirm("Are you sure you want to delete this sequence node?")) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'campaign_steps', id));
+      if (activeStep === id) setActiveStep(steps.find(s => s.id !== id)?.id || null);
+    } catch (err) {
+      console.error("Failed to delete step:", err);
+    }
   };
 
   const sequenceStrength = useMemo(() => {
