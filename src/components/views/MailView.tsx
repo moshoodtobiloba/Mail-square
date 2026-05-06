@@ -66,7 +66,7 @@ const getBodyFromPayload = (payload: any): string => {
 import { Logo } from '../ui/Logo';
 import { useAuth } from '../../lib/AuthContext';
 import { 
-  collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs, updateDoc
+  collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs, updateDoc, setDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { handleFirestoreError, OperationType } from '../../utils/firestoreErrorHandler';

@@ -6,10 +6,9 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-// Only use databaseId if it is NOT 'default'
-export const db = (firebaseConfig as any).firestoreDatabaseId && (firebaseConfig as any).firestoreDatabaseId !== 'default' 
-  ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
-  : getFirestore(app);
+// Normalize "default" to "(default)" for Enterprise edition consistency
+const dbId = (firebaseConfig as any).firestoreDatabaseId === 'default' ? '(default)' : (firebaseConfig as any).firestoreDatabaseId;
+export const db = getFirestore(app, dbId);
 export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({

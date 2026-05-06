@@ -58,31 +58,12 @@ export async function createApp() {
     next();
   });
 
-  app.get("/api/health", async (req, res) => {
-    try {
-      if (process.env.VERCEL || process.env.NETLIFY) {
-         return res.json({ status: "ok", environment: "serverless" });
-      }
-      
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 1000);
-      
-      const response = await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email", {
-        headers: { "Metadata-Flavor": "Google" },
-        signal: controller.signal
-      }).catch(() => null);
-      
-      clearTimeout(id);
-      
-      if (response && response.ok) {
-        const email = await response.text();
-        res.json({ status: "ok", identity: email });
-      } else {
-        res.json({ status: "ok", identity: "local-or-unknown" });
-      }
-    } catch (e) {
-      res.json({ status: "ok", identity: "local-or-unknown" });
-    }
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      environment: process.env.VERCEL ? "vercel" : process.env.NETLIFY ? "netlify" : "local",
+      identity: "relay-node-active"
+    });
   });
 
   const getOAuthClient = () => {
