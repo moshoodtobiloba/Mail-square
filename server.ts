@@ -11,26 +11,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize Firebase Admin
-let firestoreDatabaseId = "(default)";
-const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
+let firestoreDatabaseId: string | undefined = process.env.FIREBASE_DATABASE_ID;
+const firebaseConfigPath = path.resolve(__dirname, "firebase-applet-config.json");
 if (fs.existsSync(firebaseConfigPath)) {
   const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
-  // Normalize "default" to "(default)" to avoid Firestore 5 NOT_FOUND errors
-  const rawId = firebaseConfig.firestoreDatabaseId;
-  firestoreDatabaseId = (rawId === "default" || !rawId) ? "(default)" : rawId;
+  const rawId = process.env.FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId;
+  firestoreDatabaseId = (rawId === "default" || rawId === "(default)" || !rawId) ? undefined : rawId;
   
   if (!admin.apps.length) {
     admin.initializeApp({
-      projectId: firebaseConfig.projectId,
+      projectId: process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+    });
+  }
+} else if (process.env.FIREBASE_PROJECT_ID) {
+  // Fallback for environments where the config file is not bundled
+  const rawId = process.env.FIREBASE_DATABASE_ID;
+  firestoreDatabaseId = (rawId === "default" || rawId === "(default)" || !rawId) ? undefined : rawId;
+
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID,
     });
   }
 }
 
 const getDb = () => {
   if (!admin.apps.length) {
-    throw new Error("Firebase Admin not initialized. Is firebase-applet-config.json missing or invalid?");
+    throw new Error("Firebase Admin not initialized. Check your configuration.");
   }
-  return getFirestore();
+  return firestoreDatabaseId ? getFirestore(admin.apps[0], firestoreDatabaseId) : getFirestore();
 };
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -155,9 +164,11 @@ export async function createApp() {
         return res.status(500).send(`
           <html>
             <body style="font-family: sans-serif; padding: 40px; text-align: center;">
-              <h2 style="color: #d32f2f;">Sync Authorization Pending</h2>
-              <p>There is a configuration issue with the database relay. Please check the developer logs.</p>
-              <p style="color: #666; font-size: 12px;">Error Code: ${firestoreErr.code || 'UNKNOWN'}</p>
+              <h2 style="color: #d32f2f;">Sync Relay Error</h2>
+              <p>The backend relay is unable to save tokens to the database. This is usually due to missing configuration or environment variables.</p>
+              <p><strong>Debug Info:</strong> Ensure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and FIREBASE_PROJECT_ID are set in your platform dashboard.</p>
+              <p style="color: #666; font-size: 12px;">Internal Error: ${firestoreErr.message}</p>
+              <a href="/" style="display: inline-block; margin-top: 20px; color: #1a73e8; text-decoration: none;">Return to Dashboard</a>
             </body>
           </html>
         `);

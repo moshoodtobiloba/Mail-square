@@ -2,28 +2,40 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Safety Net
+    // Globally deny access to all documents by default
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Health
+    // Health check collection (publicly readable for simple connectivity test)
     match /test/connection {
       allow read: if true;
     }
 
-    // User Data
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // User-isolated data
+    // match /users/{userId} matches the user document itself
+    // match /users/{userId}/{allPaths=**} matches all subcollections at any depth
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow get, list, create, update, delete: if isOwner(userId);
+      
       match /{allPaths=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow get, list, create, update, delete: if isOwner(userId);
       }
     }
-    
-    // Message Reactions
+
+    // Message reactions (for collaborative features)
     match /message_reactions/{reactionId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (request.resource == null || request.resource.data.userId == request.auth.uid);
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.resource == null || request.resource.data.userId == request.auth.uid);
     }
   }
 }
